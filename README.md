@@ -570,6 +570,25 @@ const adapter = createMockWalletAdapter();
 
 For scenarios that need to run against real, live testnet (account funding, payments, multi-sig, a real Soroban contract invoke, DEX offers, account merge), see `src/tests/e2e.test.ts` and run `npm run test:e2e` — it self-funds every account via Friendbot, so no secrets are required. It's skipped by default in `npm test` and runs nightly in CI (`.github/workflows/e2e.yml`).
 
+### Bounded request pool concurrency tests
+
+`tests/stress/boundedPool.test.ts` covers the concurrency contract of `createRateLimiter` and `withRateLimit` using controlled (manually resolved) promises, so every assertion runs deterministically without real timers:
+
+| Scenario | What is verified |
+|---|---|
+| Maximum in-flight count | `pending` never exceeds `limit` while operations are running |
+| Bounded queue overflow | Requests beyond `maxQueueSize` return `RATE_LIMITED` immediately |
+| Eventual completion | All queued requests finish once slots open; `pending` returns to 0 |
+| Error recovery | A failed or rejected operation does not permanently block the queue |
+| FIFO ordering | The queue drains in the order requests were submitted |
+| Independent limiters | Per-method limiters in `withRateLimit` do not share quotas |
+
+Run with:
+
+```bash
+npm test -- tests/stress/boundedPool.test.ts
+```
+
 ---
 
 ## Examples
