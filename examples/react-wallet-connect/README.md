@@ -51,6 +51,21 @@ Then pass it to `useSorokit`:
 const { walletState, connect, balances, sendPayment } = useSorokit(kit, "testnet");
 ```
 
+## Activity states
+
+The balances section uses a derived state machine with four distinct states:
+
+| State | When shown |
+|---|---|
+| `loading` | A fetch is in progress and no balances are cached yet |
+| `empty` | Wallet connected, fetch complete, account has no balances |
+| `error` | Last fetch failed — includes a **Retry** button (`aria-label="Retry loading activity"`) |
+| `populated` | At least one balance returned |
+
+Each state carries an `aria-label` and `role="status"` so screen readers announce transitions. The wrapping `<section>` uses `aria-busy` and `aria-live="polite"`.
+
+The logic lives in the exported `deriveActivityState` helper so it can be tested independently of the React tree.
+
 ## Running
 
 Because this example lives inside the sorokit-core repo, its imports point to
