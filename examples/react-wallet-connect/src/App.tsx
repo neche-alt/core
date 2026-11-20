@@ -129,7 +129,20 @@ export default function App() {
 
       {/* Feedback */}
       {error && (
-        <p style={{ marginTop: "1rem", color: "#8a1c1c", background: "#fdecec", padding: "0.75rem", borderRadius: 6 }}>
+        <p
+          role="alert"
+          style={{
+            marginTop: "1rem",
+            color: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#7a4f00"
+              : "#8a1c1c",
+            background: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#fff8e1"
+              : "#fdecec",
+            padding: "0.75rem",
+            borderRadius: 6,
+          }}
+        >
           {error}
         </p>
       )}

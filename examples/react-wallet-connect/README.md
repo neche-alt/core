@@ -13,6 +13,19 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- Distinguishing user rejection from transport or contract failure
+
+## Handling wallet rejection
+
+When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
+
+| Error code | Displayed message |
+|---|---|
+| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
+| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
+| Any other failure | Original SDK error message |
+
+The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
 
 ## Files
 
