@@ -20,6 +20,7 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
+| `src/WalletConnectionDemo.tsx` | Polished demo: empty, loading, connected, rejected, disconnected states |
 
 ## Setup
 
@@ -61,3 +62,41 @@ Type-check the example against the SDK source:
 ```bash
 npm run typecheck:examples
 ```
+
+## Wallet Connection Demo
+
+`WalletConnectionDemo` is a focused component that demonstrates all five wallet connection states driven by `WalletStatusTracker` from sorokit-core.
+
+### States shown
+
+| State | When |
+|---|---|
+| **Empty** | No wallet ever connected; shows a connect prompt |
+| **Loading** | `connecting` or `authenticating` — spinner with extension prompt |
+| **Connected** | Wallet connected; shows wallet name, truncated address, disconnect button |
+| **Rejected** | `failed` or `error` — shows error message and a retry button |
+| **Disconnected** | Previously connected but now disconnected; shows a reconnect button |
+
+A `StatusBar` with a coloured dot and an `aria-live="polite"` region is always visible, so screen readers announce every state transition.
+
+### Usage
+
+```tsx
+import { WalletConnectionDemo } from "./WalletConnectionDemo";
+import { WalletStatusTracker } from "sorokit-core/wallet";
+import { FreighterAdapter } from "sorokit-core/wallet";
+
+const tracker = new WalletStatusTracker();
+const adapter = new FreighterAdapter(swkInstance);
+
+// In your component:
+<WalletConnectionDemo
+  status={tracker.status}
+  callbacks={{
+    onConnect: () => tracker.connect(adapter),
+    onDisconnect: () => tracker.disconnect(adapter),
+  }}
+/>
+```
+
+All wallet logic stays in SDK calls (`tracker.connect`, `tracker.disconnect`). The component is purely presentational.
