@@ -30,10 +30,13 @@ export default function App() {
     loading,
     error,
     status,
+    pendingReconnect,
     connect,
     disconnect,
     refreshBalances,
     sendPayment,
+    approveReconnect,
+    rejectReconnect,
   } = useSorokit(kit, "testnet");
 
   const [destination, setDestination] = useState("");
@@ -49,6 +52,51 @@ export default function App() {
   return (
     <div style={{ maxWidth: 480, margin: "2rem auto", fontFamily: "system-ui, sans-serif" }}>
       <h1>sorokit-core — React wallet</h1>
+
+      {/* Reconnect consent prompt — shown when a reload detects a saved session */}
+      {pendingReconnect && (
+        <div
+          style={{
+            border: "1px solid #d1a800",
+            background: "#fefce8",
+            padding: "1rem",
+            borderRadius: 8,
+            marginBottom: "1rem",
+          }}
+        >
+          <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>
+            Reconnect saved session?
+          </p>
+          <p style={{ margin: "0 0 0.25rem", fontSize: "0.9em" }}>
+            Account:{" "}
+            <code style={{ wordBreak: "break-all" }}>
+              {pendingReconnect.publicKey}
+            </code>
+          </p>
+          {pendingReconnect.walletType && (
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.9em" }}>
+              Wallet: <strong>{pendingReconnect.walletType}</strong>
+            </p>
+          )}
+          <p style={{ margin: "0 0 0.5rem", fontSize: "0.9em" }}>
+            Device trust:{" "}
+            <strong>{pendingReconnect.trustEvaluation.reason}</strong> (score{" "}
+            {pendingReconnect.trustEvaluation.score}/100
+            {pendingReconnect.trustEvaluation.securityFlag
+              ? " ⚠ unusual device"
+              : ""}
+            )
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={approveReconnect} disabled={loading}>
+              Reconnect
+            </button>
+            <button onClick={rejectReconnect} disabled={loading}>
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Connection */}
       {!isConnected ? (

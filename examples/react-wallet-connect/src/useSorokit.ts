@@ -12,6 +12,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { createSorokitClient } from "../../../src/client/createSorokitClient";
 import { FreighterAdapter } from "../../../src/wallet/adapters/freighter";
+import {
+  reconnectWithConsent,
+  type ReconnectConsentContext,
+} from "../../../src/wallet/reconnectWithConsent";
+import { saveSession, clearSession } from "../../../src/wallet/sessionPersistence";
 import type { SorokitClient } from "../../../src/client/createSorokitClient";
 import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
@@ -36,10 +41,20 @@ export interface UseSorokitReturn {
   error: string | null;
   /** Last success message */
   status: string | null;
+  /**
+   * Pending reconnect consent context — present when a reload detected a
+   * persisted session. The UI should show this to the user and call either
+   * approveReconnect() or rejectReconnect().
+   */
+  pendingReconnect: ReconnectConsentContext | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   refreshBalances: () => Promise<void>;
   sendPayment: (params: PaymentParams) => Promise<void>;
+  /** Approve the pending reconnect and re-establish the wallet connection. */
+  approveReconnect: () => Promise<void>;
+  /** Reject the pending reconnect, clearing the session and returning to idle. */
+  rejectReconnect: () => void;
 }
 
 export function useSorokit(
@@ -53,6 +68,12 @@ export function useSorokit(
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [pendingReconnect, setPendingReconnect] =
+    useState<ReconnectConsentContext | null>(null);
+  // Store the approve callback set by the reconnect flow so approveReconnect()
+  // can resolve the prompt's promise.
+  const [reconnectResolve, setReconnectResolve] =
+    useState<((approved: boolean) => void) | null>(null);
 
   // Build the client once on mount. createSorokitClient is synchronous and
   // cheap — it just validates config and resolves the network endpoints.
@@ -64,6 +85,59 @@ export function useSorokit(
     }
     setClient(result.data);
   }, [network]);
+
+  // ── Reconnect-on-reload flow ────────────────────────────────────────────────
+  // On mount, attempt to restore a persisted session. If one exists, surface
+  // the consent prompt data via `pendingReconnect` so the UI can show it.
+  // The actual reconnect only happens when the user calls approveReconnect().
+  useEffect(() => {
+    let cancelled = false;
+
+    async function tryReconnect() {
+      const outcome = await reconnectWithConsent(
+        adapter,
+        (ctx) =>
+          new Promise<boolean>((resolve) => {
+            if (cancelled) {
+              resolve(false);
+              return;
+            }
+            // Surface the context to the UI and store the resolver so the
+            // approve/reject callbacks can resolve this promise.
+            setPendingReconnect(ctx);
+            setReconnectResolve(() => resolve);
+          }),
+      );
+
+      if (cancelled) return;
+
+      if (outcome.outcome === "connected") {
+        setWalletState(outcome.state);
+        setStatus("Session restored");
+        setPendingReconnect(null);
+        if (outcome.state.publicKey) {
+          const balResult = await (
+            await (async () => {
+              // client may not be initialised yet — wait a tick
+              return client;
+            })()
+          )?.account.getBalances(outcome.state.publicKey);
+          if (balResult?.status === "ok") setBalances(balResult.data);
+        }
+      } else if (outcome.outcome === "rejected") {
+        setPendingReconnect(null);
+        setStatus(null);
+      }
+      // "no_session" and "error" are silent — no banner needed.
+    }
+
+    tryReconnect().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Run only on mount (adapter is stable across renders).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapter]);
 
   const connect = useCallback(async () => {
     if (!client) return;
@@ -77,6 +151,13 @@ export function useSorokit(
       setWalletState(result.data);
       setStatus("Wallet connected");
 
+      // Persist the session so a reload can offer a reconnect prompt.
+      await saveSession({
+        publicKey: result.data.publicKey ?? "",
+        walletType: result.data.walletType ?? undefined,
+        network,
+      });
+
       // Fetch balances right after connecting so the UI populates immediately.
       if (result.data.publicKey) {
         const balResult = await client.account.getBalances(result.data.publicKey);
@@ -84,7 +165,7 @@ export function useSorokit(
       }
     }
     setLoading(false);
-  }, [client, adapter]);
+  }, [client, adapter, network]);
 
   const disconnect = useCallback(async () => {
     if (!client) return;
@@ -94,6 +175,8 @@ export function useSorokit(
       setWalletState(null);
       setBalances([]);
       setStatus("Wallet disconnected");
+      // Clear persisted session so reload does not offer a stale reconnect.
+      clearSession();
     } else {
       setError(result.error.message);
     }
@@ -172,9 +255,23 @@ export function useSorokit(
     loading,
     error,
     status,
+    pendingReconnect,
     connect,
     disconnect,
     refreshBalances,
     sendPayment,
+    approveReconnect: useCallback(async () => {
+      if (reconnectResolve) {
+        reconnectResolve(true);
+        setReconnectResolve(null);
+      }
+    }, [reconnectResolve]),
+    rejectReconnect: useCallback(() => {
+      if (reconnectResolve) {
+        reconnectResolve(false);
+        setReconnectResolve(null);
+        setPendingReconnect(null);
+      }
+    }, [reconnectResolve]),
   };
 }
