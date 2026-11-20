@@ -25,6 +25,44 @@ Client page (browser) — trigger action → poll result → show status
 | `src/pages/index.tsx` | Client page: triggers the payment and displays the result |
 | `src/lambda.ts` | Drop-in AWS Lambda / Vercel Edge handler (same logic, different runtime) |
 
+## Balance presentation
+
+The `/api/balances` route returns the raw `accounts` payload **and** a
+`formatted` view that is safe to render directly:
+
+```jsonc
+{
+  "accounts": [/* raw AccountInfo[] — unchanged */],
+  "formatted": [
+    {
+      "publicKey": "G…",
+      "balances": [
+        { "assetType": "native", "assetCode": "XLM", "assetIssuer": null,
+          "assetLabel": "XLM (native)", "amount": "1,234.5" },
+        { "assetType": "credit_alphanum4", "assetCode": "USDC", "assetIssuer": "G…",
+          "assetLabel": "USDC · GABC…WXYZ", "amount": "12.3456789" }
+      ]
+    }
+  ]
+}
+```
+
+The formatted view is built with the public `formatDisplayAmount` /
+`formatDisplayAsset` helpers. `formatDisplayAmount` formats balances as decimal
+strings — it never routes the value through `Number`, so balances that exceed
+`Number.MAX_SAFE_INTEGER` (or carry many decimal places) are preserved exactly.
+`formatDisplayAsset` exposes the asset code with issuer context (abbreviated by
+default) and falls back to a labelled `"Unknown asset"` entry for unrecognized
+asset types.
+
+```ts
+// In this in-repo example the helpers resolve to the source
+// (relative path from src/pages/api/balances.ts):
+import { formatDisplayAmount, formatDisplayAsset } from "../../../../../src/utility";
+// In your own app they are the published package API:
+import { formatDisplayAmount, formatDisplayAsset } from "sorokit-core/utility";
+```
+
 ## Setup
 
 ```bash
