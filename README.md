@@ -570,6 +570,40 @@ const adapter = createMockWalletAdapter();
 
 For scenarios that need to run against real, live testnet (account funding, payments, multi-sig, a real Soroban contract invoke, DEX offers, account merge), see `src/tests/e2e.test.ts` and run `npm run test:e2e` — it self-funds every account via Friendbot, so no secrets are required. It's skipped by default in `npm test` and runs nightly in CI (`.github/workflows/e2e.yml`).
 
+### Mocked transaction lifecycle tests
+
+`src/tests/transaction-lifecycle.test.ts` exercises the full build → simulate → sign → submit → status flow with every significant outcome (success, wallet rejection, simulation error, submission timeout, confirmed, not found) entirely via mocked Horizon/RPC — no real network required:
+
+```bash
+vitest run src/tests/transaction-lifecycle.test.ts
+```
+
+### Flaky test reproducibility
+
+Randomized and stress tests in `src/tests/flaky-test-reproducibility.test.ts` pin their seed via the `SEED` environment variable. If CI reports a failure, copy the seed from the run log and re-run:
+
+```bash
+SEED=<reported-seed> vitest run src/tests/flaky-test-reproducibility.test.ts
+```
+
+The active seed and full runtime context (Node version, platform, arch, timezone) are printed at the start of every run so they appear in CI artifacts.
+
+### Telemetry redaction
+
+`src/tests/telemetry-redaction.test.ts` uses sentinel values for account IDs, secret keys, mnemonics, raw XDR payloads, and API keys and asserts none of them appear in exported spans or metrics on success or failure paths. Run directly with:
+
+```bash
+vitest run src/tests/telemetry-redaction.test.ts
+```
+
+### Stellar SDK version compatibility
+
+`src/tests/sdk-version-compatibility.test.ts` covers every version-range boundary (compatible, major-mismatch, older-than-supported, newer-minor, unknown) and verifies that unsupported versions surface actionable package guidance:
+
+```bash
+vitest run src/tests/sdk-version-compatibility.test.ts
+```
+
 ---
 
 ## Examples
@@ -752,6 +786,10 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 - Router integration tests with real-world scenarios
 - Network resilience and circuit breaker tests
 - Contract deployment validation tests
+- End-to-end transaction lifecycle tests with mocked RPC (#89) — exercises the full build → simulate → sign → submit → status flow including wallet rejection, simulation error, submission timeout, and confirmation outcomes without hitting a real network
+- Flaky test diagnosis reproducibility (#90) — deterministic seeds via `SEED` env variable, runtime context capture, and focused reproduction commands emitted to CI logs
+- Telemetry redaction tests (#87) — sentinel sensitive values asserted absent from spans/metrics on both success and failure paths
+- Protocol compatibility tests for Stellar SDK peer versions (#86) — full version-range boundary coverage and actionable incompatibility guidance
 
 ### Performance
 
