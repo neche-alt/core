@@ -55,6 +55,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Workflow and Architecture Guides](#workflow-and-architecture-guides)
 - [Video Tutorials](#video-tutorials)
 - [New in This Release](#new-in-this-release)
+- [Build Reproducibility](#build-reproducibility)
 - [Design Principles](#design-principles)
 - [License](#license)
 
@@ -709,6 +710,27 @@ For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [
 **Adapter-based wallets** — wallet integration is delegated to [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit), keeping `sorokit-core` decoupled from wallet implementation details.
 
 For the *why* behind these and other design decisions — options considered, trade-offs accepted — see [Architecture Decision Records](docs/adr/README.md).
+
+---
+
+## Build Reproducibility
+
+Release builds are verified for determinism by comparing SHA-256 hashes of key output files across two consecutive clean builds.
+
+```bash
+node scripts/check-reproducibility.mjs
+```
+
+The script records Node, npm, TypeScript, and tsup versions, runs the build twice, compares `.js`, `.mjs`, `.cjs`, and `.d.ts` outputs, and writes a `build-reproducibility-report.json` with the full results.
+
+**Known nondeterministic artifacts** (excluded from comparison):
+
+| Pattern | Reason |
+|---|---|
+| `*.map` | Source maps embed absolute build-machine filesystem paths |
+| `chunk-<HASH>.*` | tsup content-hashed chunk names depend on parallel bundling order |
+
+If the script exits with code 1, the report lists exactly which files differed and their hashes from each run.
 
 ---
 
