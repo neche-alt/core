@@ -1,11 +1,18 @@
 /**
- * React transaction status dashboard example (#708).
+ * React transaction status dashboard example (#708, #106).
  *
  * Copy this pattern into your app. It subscribes to a
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
+ *
+ * Error recovery (#106):
+ * - Read operations (fetching the snapshot / refreshing balances) expose a
+ *   safe "Retry" button — re-running them is always idempotent.
+ * - Write operations (transaction submissions) show a status-check link
+ *   instead of a retry button so the user confirms the transaction did not
+ *   land before resubmitting, preventing accidental double-spends.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   TransactionStatusAggregator,
   streamTransactionStatus,
@@ -21,10 +28,70 @@ export function startLiveUpdates(fetchRecent: () => Promise<TransactionResult[]>
   return () => handle.stop();
 }
 
-export function TransactionStatusDashboard({ aggregator = dashboard }: { aggregator?: TransactionStatusAggregator }) {
+// ---------------------------------------------------------------------------
+// Error state shape
+// ---------------------------------------------------------------------------
+
+/** Distinguishes safe read retries from writes that need a status check first. */
+export type DashboardErrorKind = "read" | "write";
+
+export interface DashboardError {
+  kind: DashboardErrorKind;
+  message: string;
+  /** Hash of the transaction involved, present for write errors. */
+  txHash?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Recovery helpers (pure — no side-effects, easy to unit-test)
+// ---------------------------------------------------------------------------
+
+/** Returns true when retrying the operation is safe without a status check. */
+export function isRetryable(err: DashboardError): boolean {
+  return err.kind === "read";
+}
+
+/** Returns true when the caller must check transaction status before retrying. */
+export function requiresStatusCheck(err: DashboardError): boolean {
+  return err.kind === "write";
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard component
+// ---------------------------------------------------------------------------
+
+export function TransactionStatusDashboard({
+  aggregator = dashboard,
+  onRetryRead,
+}: {
+  aggregator?: TransactionStatusAggregator;
+  /**
+   * Called when the user clicks "Retry" on a read error.
+   * Provide a function that re-fetches data and re-populates the aggregator.
+   */
+  onRetryRead?: () => Promise<void>;
+}) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(() => aggregator.getSnapshot());
+  const [dashError, setDashError] = useState<DashboardError | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => aggregator.subscribe(setSnapshot), [aggregator]);
+
+  const handleRetryRead = useCallback(async () => {
+    if (!onRetryRead) return;
+    setRetrying(true);
+    setDashError(null);
+    try {
+      await onRetryRead();
+    } catch (err) {
+      setDashError({
+        kind: "read",
+        message: err instanceof Error ? err.message : "Failed to reload transactions.",
+      });
+    } finally {
+      setRetrying(false);
+    }
+  }, [onRetryRead]);
 
   return (
     <section aria-label="Transaction status dashboard">
@@ -38,6 +105,40 @@ export function TransactionStatusDashboard({ aggregator = dashboard }: { aggrega
             : "—"}
         </p>
       </header>
+
+      {/* ── Error recovery affordances ─────────────────────────────────────── */}
+      {dashError && (
+        <div role="alert" aria-live="polite">
+          <p>{dashError.message}</p>
+
+          {/* Read error: safe to retry immediately */}
+          {isRetryable(dashError) && onRetryRead && (
+            <button onClick={() => void handleRetryRead()} disabled={retrying}>
+              {retrying ? "Retrying…" : "Retry"}
+            </button>
+          )}
+
+          {/* Write error: direct the user to check status before retrying */}
+          {requiresStatusCheck(dashError) && (
+            <p>
+              <strong>Do not resubmit yet.</strong> Check whether the transaction
+              landed first:
+              {dashError.txHash && (
+                <a
+                  href={`https://stellar.expert/explorer/testnet/tx/${dashError.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {" "}
+                  View on Stellar Expert ↗
+                </a>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Status distribution ────────────────────────────────────────────── */}
       <ul>
         {snapshot.charts.statusDistribution.map((s) => (
           <li key={s.label}>
@@ -45,6 +146,8 @@ export function TransactionStatusDashboard({ aggregator = dashboard }: { aggrega
           </li>
         ))}
       </ul>
+
+      {/* ── Recent transactions ────────────────────────────────────────────── */}
       <ol>
         {snapshot.recent.map((entry) => (
           <li key={entry.tx.hash}>
