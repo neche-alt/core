@@ -832,6 +832,30 @@ See [`docs/videos.md`](docs/videos.md) for recorded video links once they're pub
 
 ---
 
+## Release validation
+
+Before publishing, run the full validation suite:
+
+```bash
+# Verify all named exports are present in the built bundle
+npm run validate:exports
+
+# Verify the tarball contains all required files and subpath exports
+npm run validate:pack
+```
+
+### `npm run validate:pack`
+
+Runs `npm pack --dry-run --json` and asserts that:
+
+- **Package metadata** — `name`, `version`, `main`, and `types` fields are correct.
+- **Required entry points** — `dist/index.js`, `dist/index.mjs`, `dist/index.d.ts`, plus the `testing`, `core`, `wallet`, and `transaction` subpath bundles are present.
+- **Subpath export coverage** — every `exports` map entry in `package.json` has its corresponding `types`, `import`, and `require` file in the tarball.
+
+The script exits non-zero and prints which files are missing, so CI fails before `npm publish` is attempted.
+
+---
+
 ## License
 
 [MIT](LICENSE)
