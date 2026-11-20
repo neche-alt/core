@@ -4,9 +4,12 @@
  * Renders connect/disconnect, a balance list, and a payment form.
  * All sorokit-core calls are in useSorokit.ts — this file only reads state
  * and calls the callbacks the hook exposes.
+ *
+ * Accessibility (#107): respects prefers-reduced-motion and
+ * prefers-contrast / forced-colors via the helpers in ./a11y.ts.
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   StellarWalletsKit,
   WalletNetwork,
@@ -14,6 +17,11 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
+import {
+  prefersReducedMotion,
+  prefersHighContrast,
+  resolveStatusColor,
+} from "./a11y";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 // In a real app this typically lives in a context provider or module-level singleton.
@@ -39,6 +47,23 @@ export default function App() {
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
 
+  // Track OS/browser preference changes so the UI adapts without a reload.
+  const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
+  const [highContrast, setHighContrast] = useState(prefersHighContrast);
+
+  useEffect(() => {
+    const motionMq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const contrastMq = window.matchMedia("(prefers-contrast: more)");
+    const onMotion = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    const onContrast = (e: MediaQueryListEvent) => setHighContrast(e.matches);
+    motionMq.addEventListener("change", onMotion);
+    contrastMq.addEventListener("change", onContrast);
+    return () => {
+      motionMq.removeEventListener("change", onMotion);
+      contrastMq.removeEventListener("change", onContrast);
+    };
+  }, []);
+
   const isConnected = walletState?.connected && walletState.publicKey;
 
   function handleSend(e: React.FormEvent) {
@@ -47,12 +72,20 @@ export default function App() {
   }
 
   return (
-    <div style={{ maxWidth: 480, margin: "2rem auto", fontFamily: "system-ui, sans-serif" }}>
+    <div
+      data-reduced-motion={reducedMotion}
+      data-high-contrast={highContrast}
+      style={{ maxWidth: 480, margin: "2rem auto", fontFamily: "system-ui, sans-serif" }}
+    >
       <h1>sorokit-core — React wallet</h1>
 
       {/* Connection */}
       {!isConnected ? (
-        <button onClick={connect} disabled={loading}>
+        <button
+          onClick={connect}
+          disabled={loading}
+          style={{ transition: reducedMotion ? "none" : "opacity 0.2s ease" }}
+        >
           {loading ? "Connecting…" : "Connect Freighter"}
         </button>
       ) : (
@@ -127,14 +160,36 @@ export default function App() {
         </form>
       )}
 
-      {/* Feedback */}
+      {/* Feedback — status colors respect high-contrast preferences */}
       {error && (
-        <p style={{ marginTop: "1rem", color: "#8a1c1c", background: "#fdecec", padding: "0.75rem", borderRadius: 6 }}>
+        <p
+          role="alert"
+          aria-label="Error"
+          style={{
+            marginTop: "1rem",
+            color: resolveStatusColor("error", highContrast),
+            background: highContrast ? "transparent" : "#fdecec",
+            padding: "0.75rem",
+            borderRadius: 6,
+            border: highContrast ? "2px solid currentColor" : "none",
+          }}
+        >
           {error}
         </p>
       )}
       {status && !error && (
-        <p style={{ marginTop: "1rem", background: "#eef6ff", padding: "0.75rem", borderRadius: 6 }}>
+        <p
+          role="status"
+          aria-label="Status"
+          style={{
+            marginTop: "1rem",
+            color: resolveStatusColor("neutral", highContrast),
+            background: highContrast ? "transparent" : "#eef6ff",
+            padding: "0.75rem",
+            borderRadius: 6,
+            border: highContrast ? "2px solid currentColor" : "none",
+          }}
+        >
           {status}
         </p>
       )}

@@ -51,6 +51,27 @@ Then pass it to `useSorokit`:
 const { walletState, connect, balances, sendPayment } = useSorokit(kit, "testnet");
 ```
 
+## Accessibility
+
+### Reduced motion
+
+The example listens to `prefers-reduced-motion` via `window.matchMedia` and removes CSS transitions when the user prefers reduced motion. The `motionSafeTransition` helper in `src/a11y.ts` returns `"none"` when reduced motion is active.
+
+### Color contrast and color-only indicators
+
+Status colors (success, error, neutral) use dark foreground tokens that meet WCAG AA (4.5:1 on white). No status is communicated by color alone — each state also carries `role="alert"` or `role="status"` and visible text.
+
+When `forced-colors` or `prefers-contrast: more` is active, all status colors fall back to the CSS system keyword `ButtonText`, which the browser maps to the user's high-contrast foreground color.
+
+### Checks used
+
+| Check | Method |
+|---|---|
+| Reduced motion respected | `window.matchMedia("(prefers-reduced-motion: reduce)")` with live listener |
+| High contrast respected | `window.matchMedia("(forced-colors: active)")` and `prefers-contrast: more` |
+| Status not color-only | Each state has `role`, `aria-label`, and text in addition to color |
+| Color contrast | Tokens verified manually against WCAG AA (4.5:1 on white) |
+
 ## Running
 
 Because this example lives inside the sorokit-core repo, its imports point to
