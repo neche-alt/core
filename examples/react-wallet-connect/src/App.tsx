@@ -14,6 +14,7 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
+import { CopyAddress } from "./CopyAddress";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 // In a real app this typically lives in a context provider or module-level singleton.
@@ -59,7 +60,7 @@ export default function App() {
         <div>
           <p>
             <strong>Connected:</strong>{" "}
-            <code style={{ wordBreak: "break-all" }}>{walletState.publicKey}</code>
+            <CopyAddress address={walletState.publicKey!} />
           </p>
           <button onClick={disconnect} disabled={loading} style={{ marginRight: 8 }}>
             Disconnect

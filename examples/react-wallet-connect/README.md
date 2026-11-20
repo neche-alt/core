@@ -13,6 +13,7 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- **Accessible copy-address control** (`CopyAddress`) with confirmation feedback and clipboard error handling
 
 ## Files
 
@@ -20,6 +21,27 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
+| `src/CopyAddress.tsx` | Accessible copy-to-clipboard control for account addresses |
+
+## CopyAddress component
+
+`CopyAddress` renders a full account address alongside a copy button that:
+
+- Copies the **untruncated** G-address to the clipboard using `navigator.clipboard.writeText`
+- Shows `"Copied!"` on success (reverts after 2 s by default)
+- Shows `"Copy failed"` when the Clipboard API is unavailable or the write is rejected (e.g. non-secure context)
+- Exposes an `aria-label` on the button that changes with copy state, so screen readers announce the outcome
+- Is fully keyboard accessible — focusable with Tab, activated with Enter or Space, with a visible focus ring
+
+```tsx
+import { CopyAddress } from "./CopyAddress";
+
+// Render after wallet is connected:
+<CopyAddress address={publicKey} />
+
+// Custom feedback duration:
+<CopyAddress address={publicKey} feedbackDurationMs={3000} />
+```
 
 ## Setup
 
