@@ -1,7 +1,8 @@
 /**
  * React wallet-connect example — UI layer (#react-wallet-connect).
  *
- * Renders connect/disconnect, a balance list, and a payment form.
+ * Renders connect/disconnect, network identity badge, a balance list, and a
+ * payment form. Mainnet actions require explicit confirmation.
  * All sorokit-core calls are in useSorokit.ts — this file only reads state
  * and calls the callbacks the hook exposes.
  */
@@ -14,9 +15,13 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
+import { NetworkBadge, MainnetConfirmDialog, useMainnetGuard } from "./NetworkBadge";
+import type { NetworkType } from "../../../src/network/config";
+
+// Active network — change to "mainnet" to see the mainnet confirmation guard.
+const ACTIVE_NETWORK: NetworkType = "testnet";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
-// In a real app this typically lives in a context provider or module-level singleton.
 const kit = new StellarWalletsKit({
   network: WalletNetwork.TESTNET,
   selectedWalletId: FREIGHTER_ID,
@@ -34,21 +39,31 @@ export default function App() {
     disconnect,
     refreshBalances,
     sendPayment,
-  } = useSorokit(kit, "testnet");
+  } = useSorokit(kit, ACTIVE_NETWORK);
 
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
 
+  // Mainnet guard — no-op on testnet/futurenet, requires confirmation on mainnet
+  const guard = useMainnetGuard(ACTIVE_NETWORK);
+
   const isConnected = walletState?.connected && walletState.publicKey;
 
-  function handleSend(e: React.FormEvent) {
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
+    // Gate mainnet sends behind an explicit confirmation prompt
+    const confirmed = await guard.requestConfirmation();
+    if (!confirmed) return;
     sendPayment({ destination, amount });
   }
 
   return (
     <div style={{ maxWidth: 480, margin: "2rem auto", fontFamily: "system-ui, sans-serif" }}>
-      <h1>sorokit-core — React wallet</h1>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+        <h1 style={{ margin: 0 }}>sorokit-core — React wallet</h1>
+        {/* Network identity badge — always visible, updates on network switch */}
+        <NetworkBadge network={ACTIVE_NETWORK} />
+      </div>
 
       {/* Connection */}
       {!isConnected ? (
@@ -121,9 +136,18 @@ export default function App() {
               />
             </label>
           </div>
-          <button type="submit" disabled={loading}>
+          <button type="submit" disabled={loading || guard.isPending}>
             {loading ? "Sending…" : "Send"}
           </button>
+
+          {/* Mainnet confirmation dialog — renders inline when guard.isPending */}
+          {guard.isPending && (
+            <MainnetConfirmDialog
+              actionDescription={`Send ${amount} XLM to ${destination || "…"}`}
+              onConfirm={guard.confirm}
+              onCancel={guard.cancel}
+            />
+          )}
         </form>
       )}
 
