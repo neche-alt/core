@@ -14,6 +14,7 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
+import type { AssetBalance } from "../../../src/account/types";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 // In a real app this typically lives in a context provider or module-level singleton.
@@ -22,6 +23,26 @@ const kit = new StellarWalletsKit({
   selectedWalletId: FREIGHTER_ID,
   modules: [new FreighterModule()],
 });
+
+export type ActivityState =
+  | { kind: "loading" }
+  | { kind: "empty" }
+  | { kind: "error"; message: string; retry: () => void }
+  | { kind: "populated"; balances: AssetBalance[] };
+
+export function deriveActivityState(
+  loading: boolean,
+  balances: AssetBalance[],
+  error: string | null,
+  connected: boolean,
+  retry: () => void,
+): ActivityState {
+  if (loading && balances.length === 0) return { kind: "loading" };
+  if (error) return { kind: "error", message: error, retry };
+  if (connected && balances.length === 0 && !loading) return { kind: "empty" };
+  if (balances.length > 0) return { kind: "populated", balances };
+  return { kind: "loading" };
+}
 
 export default function App() {
   const {
@@ -71,26 +92,63 @@ export default function App() {
       )}
 
       {/* Balances */}
-      {balances.length > 0 && (
-        <div style={{ marginTop: "1.5rem" }}>
+      {isConnected && (
+        <section
+          aria-label="Account activity"
+          aria-live="polite"
+          aria-busy={loading}
+          style={{ marginTop: "1.5rem" }}
+        >
           <h2>Balances</h2>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left" }}>Asset</th>
-                <th style={{ textAlign: "right" }}>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {balances.map((b) => (
-                <tr key={`${b.assetCode}-${b.assetIssuer ?? "native"}`}>
-                  <td>{b.assetCode}</td>
-                  <td style={{ textAlign: "right" }}>{b.balance}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          {(() => {
+            const state = deriveActivityState(loading, balances, error, !!isConnected, refreshBalances);
+            if (state.kind === "loading") {
+              return (
+                <p aria-label="Loading account activity" role="status">
+                  Loading…
+                </p>
+              );
+            }
+            if (state.kind === "empty") {
+              return (
+                <p aria-label="No account activity" role="status">
+                  No activity yet
+                </p>
+              );
+            }
+            if (state.kind === "error") {
+              return (
+                <div>
+                  <p style={{ color: "#8a1c1c" }}>{state.message}</p>
+                  <button
+                    aria-label="Retry loading activity"
+                    onClick={state.retry}
+                  >
+                    Retry
+                  </button>
+                </div>
+              );
+            }
+            return (
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left" }}>Asset</th>
+                    <th style={{ textAlign: "right" }}>Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.balances.map((b) => (
+                    <tr key={`${b.assetCode}-${b.assetIssuer ?? "native"}`}>
+                      <td>{b.assetCode}</td>
+                      <td style={{ textAlign: "right" }}>{b.balance}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
+        </section>
       )}
 
       {/* Payment form — only shown when connected */}
@@ -128,11 +186,6 @@ export default function App() {
       )}
 
       {/* Feedback */}
-      {error && (
-        <p style={{ marginTop: "1rem", color: "#8a1c1c", background: "#fdecec", padding: "0.75rem", borderRadius: 6 }}>
-          {error}
-        </p>
-      )}
       {status && !error && (
         <p style={{ marginTop: "1rem", background: "#eef6ff", padding: "0.75rem", borderRadius: 6 }}>
           {status}
