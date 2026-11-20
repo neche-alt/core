@@ -21,6 +21,23 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
 
+## Localization (#104)
+
+All user-visible strings are centralized in `src/i18n.ts` as a typed dictionary. Amounts and dates use `Intl.NumberFormat` and `Intl.DateTimeFormat` — no extra dependency added to the core SDK.
+
+```ts
+import { ui, formatAmount, formatDate } from "./i18n";
+
+// Swap strings for another locale by replacing values in the dictionary.
+ui.connectButton;         // "Connect Freighter"
+ui.paymentSentStatus("TXHASH"); // "Payment sent — tx TXHASH"
+
+formatAmount("1234.5000000", "XLM", "de-DE"); // "1.234,5 XLM"
+formatDate("2024-03-15T10:00:00Z", "fr-FR");  // "15 mars 2024, 10:00"
+```
+
+To use your own translations, replace the values in `i18n.ts` or load them from any i18n library (react-i18next, vue-i18n, fluent, …) and re-export the same `WalletUiStrings` shape.
+
 ## Setup
 
 ```bash

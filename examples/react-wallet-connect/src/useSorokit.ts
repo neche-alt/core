@@ -16,6 +16,7 @@ import type { SorokitClient } from "../../../src/client/createSorokitClient";
 import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
 import type { NetworkType } from "../../../src/network/config";
+import { ui } from "./i18n";
 
 export interface PaymentParams {
   destination: string;
@@ -75,7 +76,7 @@ export function useSorokit(
       setError(result.error.message);
     } else {
       setWalletState(result.data);
-      setStatus("Wallet connected");
+      setStatus(ui.walletConnectedStatus);
 
       // Fetch balances right after connecting so the UI populates immediately.
       if (result.data.publicKey) {
@@ -93,7 +94,7 @@ export function useSorokit(
     if (result.status === "ok") {
       setWalletState(null);
       setBalances([]);
-      setStatus("Wallet disconnected");
+      setStatus(ui.walletDisconnectedStatus);
     } else {
       setError(result.error.message);
     }
