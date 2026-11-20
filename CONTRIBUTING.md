@@ -94,6 +94,26 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 
    Then open a PR on GitHub with a clear title and description.
 
+## CI Workflow Security
+
+### Token Permissions
+
+All CI jobs run with the least-privilege token model:
+
+- The top-level `permissions: contents: read` in `ci.yml` restricts every job by default.
+- Each job also declares its own `permissions` block to make intent explicit.
+- No test, lint, or build job can write to the repository or request an OIDC token.
+
+### Publishing Credentials
+
+Publishing secrets (`NPM_TOKEN`) live only in `release.yml`, which triggers
+exclusively on version tag pushes — never on `pull_request` events.
+
+This means:
+- Fork pull requests **cannot** access release secrets.
+- A compromised dependency in a test step cannot exfiltrate publish credentials.
+- The publish job is the only job that requests `contents: write` and `id-token: write`.
+
 ## Pull Request Guidelines
 
 ### Before Opening a PR

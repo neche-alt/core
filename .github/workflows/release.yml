@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Release jobs need write access to create GitHub releases and publish packages.
+# No publishing credentials are available to pull-request (fork) jobs because
+# this workflow only triggers on tag pushes to the default branch.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    # Publishing credentials are scoped to this single job and are never
+    # injected into test or build jobs, so a compromised test step cannot
+    # exfiltrate them.
+    permissions:
+      contents: write   # needed to create a GitHub Release
+      id-token: write   # needed for npm provenance attestation
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          # NPM_TOKEN is only available in this job; fork PRs cannot trigger
+          # tag-push events and therefore never reach this step.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
