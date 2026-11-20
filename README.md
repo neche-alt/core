@@ -762,6 +762,21 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 
 ---
 
+## Security
+
+Sorokit Core enforces a two-tier dependency audit policy in CI.
+
+| Severity | CI behaviour |
+|---|---|
+| **critical / high** | Blocking — CI fails |
+| **moderate / low** | Non-blocking — uploaded as `audit-advisory-report` artifact |
+
+The blocking check runs `npm audit --audit-level=high`. A separate advisory step writes a full JSON report and uploads it as a GitHub Actions artifact so every pull request has a visible record of lower-severity findings.
+
+See [`docs/security-audit-policy.md`](docs/security-audit-policy.md) for the full policy, remediation process, and local audit commands.
+
+---
+
 ## Contributing
 
 Pull requests are welcome. For significant changes, please open an issue first to discuss what you'd like to change.
