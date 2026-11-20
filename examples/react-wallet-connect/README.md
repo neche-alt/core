@@ -20,6 +20,7 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
+| `src/AccessibleWalletControls.tsx` | Keyboard-operable controls with aria labels and live status announcements |
 
 ## Setup
 
@@ -61,3 +62,44 @@ Type-check the example against the SDK source:
 ```bash
 npm run typecheck:examples
 ```
+
+## Accessible Wallet Controls
+
+`AccessibleWalletControls` is a drop-in replacement for the basic connect/disconnect buttons. It audits and fixes the accessibility gaps in a typical wallet integration.
+
+### What it covers
+
+| Concern | Implementation |
+|---|---|
+| Keyboard operation | All controls are `<button>` elements, operable with Enter/Space |
+| Accessible names | Every button has an explicit `aria-label` including the wallet name and action |
+| Focus visibility | Focus ring rendered via `onFocus`/`onBlur` — `outline` is never suppressed |
+| Status announcements | `aria-live="polite"` region announces every state change to screen readers |
+| Disabled state | Uses the HTML `disabled` attribute (not just visual opacity), plus `aria-disabled` |
+| Error announcements | Errors rendered in a `role="alert"` region for immediate announcement |
+| Account address | Full key in `title` and `aria-label`; truncated text shown visually |
+
+### Provider-specific limitations
+
+Extension wallets (Freighter, xBull, Lobstr, etc.) open a **separate browser popup** for approval. That popup is outside this document's focus management scope — focus cannot be moved into it programmatically from the SDK. The `aria-live` region covers this by announcing the new state once the popup resolves.
+
+WalletConnect uses a QR-code modal injected by the WalletConnect library. That modal manages its own focus trap; no additional focus management is needed from the SDK side.
+
+### Usage
+
+```tsx
+import { AccessibleWalletControls } from "./AccessibleWalletControls";
+import { WalletStatusTracker } from "sorokit-core/wallet";
+
+const tracker = new WalletStatusTracker();
+
+// In your component:
+<AccessibleWalletControls
+  walletStatus={tracker.status}
+  onConnect={() => tracker.connect(adapter)}
+  onDisconnect={() => tracker.disconnect(adapter)}
+  busy={loading}
+/>
+```
+
+Pass `busy={true}` during any in-progress operation to prevent double-clicks — it disables all action buttons.
