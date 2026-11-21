@@ -330,6 +330,39 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Contract snapshots
+
+`snapshotContractState` captures on-chain instance state with configurable size bounds and key redaction:
+
+```ts
+import {
+  snapshotContractState,
+  compareSnapshots,
+  setContractSnapshotRetention,
+  MAX_SNAPSHOT_STATE_BYTES,
+} from "sorokit-core";
+
+// Capture baseline — redact sensitive keys, enforce a 512 KiB limit
+const before = await snapshotContractState(rpcUrl, contractId, "pre-upgrade", {
+  redactKeys: ["wasmHash"],
+  maxStateBytesPerSnapshot: 512 * 1024,
+});
+if (before.status === "error") {
+  console.error(before.error.message); // e.g. "Snapshot state exceeds size limit"
+}
+
+// Configure global retention (default: 200 snapshots, no age limit)
+setContractSnapshotRetention({ maxSnapshots: 50, maxAgeMs: 3_600_000 });
+
+// Compare two snapshots by label
+const diff = compareSnapshots("pre-upgrade", "post-upgrade");
+if (diff.status === "ok") {
+  console.log(diff.data.added, diff.data.changed, diff.data.removed);
+}
+```
+
+See [docs/contract-snapshots.md](docs/contract-snapshots.md) for full retention and redaction guidance.
+
 #### Contract deployment
 
 `buildContractDeploy` validates its configuration before any network call, so a

@@ -4,6 +4,33 @@ import type { SorokitResult } from "../shared/response";
 import { toMessage } from "../shared";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 
+/** Default maximum serialised size (in bytes) of a single snapshot's state. 2 MiB. */
+export const MAX_SNAPSHOT_STATE_BYTES = 2 * 1024 * 1024;
+
+/** Thrown (and also returned as an `err`) when a snapshot state exceeds the size limit. */
+export class SnapshotSizeError extends Error {
+  readonly estimatedBytes: number;
+  constructor(estimatedBytes: number, limit: number) {
+    super(`Snapshot state exceeds size limit: ${estimatedBytes} bytes (limit: ${limit} bytes)`);
+    this.name = "SnapshotSizeError";
+    this.estimatedBytes = estimatedBytes;
+  }
+}
+
+/**
+ * Options that control redaction and size enforcement for a single
+ * `snapshotContractState` call.
+ */
+export interface SnapshotRedactOptions {
+  /** Keys to omit from `state` before the snapshot is stored or size-checked. */
+  redactKeys?: string[];
+  /**
+   * Maximum serialised state size in bytes for this snapshot.
+   * Defaults to `MAX_SNAPSHOT_STATE_BYTES` (2 MiB).
+   */
+  maxStateBytesPerSnapshot?: number;
+}
+
 export interface ContractSnapshot {
   /** Unique snapshot identifier */
   id: string;
@@ -93,6 +120,11 @@ export function listSnapshots(contractId?: string): ContractSnapshot[] {
   return all.filter((s) => s.contractId === contractId);
 }
 
+/** Estimates the in-memory size of serialised state (UTF-16 approximation). Not exported. */
+function estimateSnapshotStateBytes(state: Record<string, unknown>): number {
+  return JSON.stringify(state).length * 2;
+}
+
 function extractState(entry: unknown): Record<string, unknown> {
   try {
     const contractData = (entry as { val: { contractData: () => unknown } }).val.contractData();
@@ -147,13 +179,19 @@ function diffObjects(
  * the given `label`. Re-using the same label overwrites the previous snapshot.
  * When no label is provided, one is generated from the current timestamp.
  *
+ * @param redactOptions - Optional size-limit and key-redaction settings.
+ *
  * @example
- * const snap = await snapshotContractState(rpcUrl, networkConfig, contractId, "before-upgrade");
+ * const snap = await snapshotContractState(rpcUrl, contractId, "before-upgrade", {
+ *   redactKeys: ["wasmHash"],
+ *   maxStateBytesPerSnapshot: 512 * 1024,
+ * });
  */
 export async function snapshotContractState(
   rpcUrl: string,
   contractId: string,
   label?: string,
+  redactOptions?: SnapshotRedactOptions,
 ): Promise<SorokitResult<ContractSnapshot>> {
   const snapshotLabel = label ?? `snapshot-${Date.now()}`;
   const timestamp = new Date().toISOString();
@@ -165,9 +203,27 @@ export async function snapshotContractState(
     const instanceResult = await rpc.getLedgerEntries(contract.getFootprint() as any);
     const instanceEntry = instanceResult.entries[0];
 
-    const state: Record<string, unknown> = instanceEntry
+    let state: Record<string, unknown> = instanceEntry
       ? extractState(instanceEntry)
       : {};
+
+    // Apply key redaction before size-checking and storage.
+    if (redactOptions?.redactKeys && redactOptions.redactKeys.length > 0) {
+      state = { ...state };
+      for (const key of redactOptions.redactKeys) {
+        delete state[key];
+      }
+    }
+
+    // Enforce size limit.
+    const sizeLimit = redactOptions?.maxStateBytesPerSnapshot ?? MAX_SNAPSHOT_STATE_BYTES;
+    const estimatedBytes = estimateSnapshotStateBytes(state);
+    if (estimatedBytes > sizeLimit) {
+      return err(
+        SorokitErrorCode.CONTRACT_READ_FAILED,
+        `Snapshot state exceeds size limit: ${estimatedBytes} bytes (limit: ${sizeLimit} bytes)`,
+      );
+    }
 
     const snapshot: ContractSnapshot = { id, contractId, label: snapshotLabel, timestamp, state };
     _snapshots.set(snapshotLabel, snapshot);
