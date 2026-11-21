@@ -1,8 +1,9 @@
-import { SorokitErrorCode } from "../shared/response";
+import { SorokitErrorCode, err, ok } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import type { SorokitLogger } from "../shared/logger";
 import type { ResolvedNetworkConfig } from "../shared/types";
 import type { SorobanPollConfig, BatchContractInvocation, BatchContractResult } from "./types";
+import { BATCH_INVOCATION_LIMIT } from "./types";
 import { invokeContract } from "./invokeContract";
 
 function toInvokeParams(
@@ -58,6 +59,14 @@ function toBatchResult(
  * By default runs invocations in parallel via Promise.allSettled(). Each call
  * runs independently — partial failures are captured per-result. Returns results
  * in the same order as invocations[].
+ *
+ * **Atomicity:** Each invocation is a separate transaction. There is no
+ * cross-invocation atomicity — a subset may succeed while others fail.
+ * Callers must handle partial success explicitly via per-result `status`.
+ *
+ * **Size limit:** Batches are capped at {@link BATCH_INVOCATION_LIMIT} invocations.
+ * Exceeding this limit returns an error immediately without network I/O.
+ * Split large batches into chunks of at most `BATCH_INVOCATION_LIMIT`.
  */
 export async function invokeBatchContracts(
   rpcUrl: string,
@@ -70,7 +79,19 @@ export async function invokeBatchContracts(
     pollConfig?: SorobanPollConfig;
     logger?: SorokitLogger;
   },
-): Promise<BatchContractResult[]> {
+): Promise<SorokitResult<BatchContractResult[]>> {
+  if (invocations.length > BATCH_INVOCATION_LIMIT) {
+    return err(
+      SorokitErrorCode.TX_BUILD_FAILED,
+      `Batch size ${invocations.length} exceeds the maximum of ${BATCH_INVOCATION_LIMIT} invocations per batch. ` +
+        `Split the batch into chunks of at most ${BATCH_INVOCATION_LIMIT}.`,
+    );
+  }
+
+  if (invocations.length === 0) {
+    return ok([]);
+  }
+
   const runInvocation = (inv: BatchContractInvocation) =>
     invokeContract(
       rpcUrl,
@@ -91,9 +112,9 @@ export async function invokeBatchContracts(
         results.push(toBatchResult(inv, { status: "rejected", reason }));
       }
     }
-    return results;
+    return ok(results);
   }
 
   const settled = await Promise.allSettled(invocations.map(runInvocation));
-  return invocations.map((inv, i) => toBatchResult(inv, settled[i]!));
+  return ok(invocations.map((inv, i) => toBatchResult(inv, settled[i]!)));
 }

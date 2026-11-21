@@ -330,6 +330,69 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Contract snapshots
+
+`snapshotContractState` captures on-chain instance state with configurable size bounds and key redaction:
+
+```ts
+import {
+  snapshotContractState,
+  compareSnapshots,
+  setContractSnapshotRetention,
+  MAX_SNAPSHOT_STATE_BYTES,
+} from "sorokit-core";
+
+// Capture baseline — redact sensitive keys, enforce a 512 KiB limit
+const before = await snapshotContractState(rpcUrl, contractId, "pre-upgrade", {
+  redactKeys: ["wasmHash"],
+  maxStateBytesPerSnapshot: 512 * 1024,
+});
+if (before.status === "error") {
+  console.error(before.error.message); // e.g. "Snapshot state exceeds size limit"
+}
+
+// Configure global retention (default: 200 snapshots, no age limit)
+setContractSnapshotRetention({ maxSnapshots: 50, maxAgeMs: 3_600_000 });
+
+// Compare two snapshots by label
+const diff = compareSnapshots("pre-upgrade", "post-upgrade");
+if (diff.status === "ok") {
+  console.log(diff.data.added, diff.data.changed, diff.data.removed);
+}
+```
+
+See [docs/contract-snapshots.md](docs/contract-snapshots.md) for full retention and redaction guidance.
+
+#### Contract invocation batching
+
+`invokeBatchContracts` runs multiple calls and captures per-invocation outcomes:
+
+```ts
+import { invokeBatchContracts, BATCH_INVOCATION_LIMIT } from "sorokit-core";
+
+const result = await invokeBatchContracts(rpcUrl, networkConfig, horizonUrl, [
+  { contractId, method: "transfer", args, publicKey },
+  { contractId, method: "mint", args: mintArgs, publicKey },
+], signFn);
+
+if (result.status === "error") {
+  // Batch was rejected (e.g. exceeded BATCH_INVOCATION_LIMIT = 20)
+  console.error(result.error.message);
+} else {
+  for (const item of result.data) {
+    // Each item has status "ok" | "error" — partial success is normal
+    if (item.status === "error") {
+      console.error(`${item.contractId}.${item.method}: ${item.error.message}`);
+    }
+  }
+}
+```
+
+**No cross-invocation atomicity** — each call is a separate transaction. Split
+batches larger than `BATCH_INVOCATION_LIMIT` (20) into chunks.
+
+See [docs/contract-invocation-batching.md](docs/contract-invocation-batching.md) for full details.
+
 #### Contract deployment
 
 `buildContractDeploy` validates its configuration before any network call, so a

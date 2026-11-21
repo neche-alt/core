@@ -214,6 +214,12 @@ export interface BatchContractInvocation {
   stateTracker?: ContractStateTracker;
 }
 
+/**
+ * Hard upper bound on the number of invocations per batch call.
+ * Exceeding this limit returns an error immediately without network I/O.
+ */
+export const BATCH_INVOCATION_LIMIT = 20;
+
 /** Result for one invocation within a batch — preserves contractId and method for correlation. */
 export type BatchContractResult =
   | { status: "ok"; data: string; contractId: string; method: string }

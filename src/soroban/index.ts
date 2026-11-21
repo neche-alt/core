@@ -174,9 +174,11 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  MAX_SNAPSHOT_STATE_BYTES,
+  SnapshotSizeError,
 } from "./contractSnapshot";
 export { calculateStorageRent, renewContractStorage } from "./storageExpiration";
-export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff, SnapshotRedactOptions } from "./contractSnapshot";
 export { analyzeCallOptimization } from "./callOptimization";
 export type {
   CallOptimizationReport,
@@ -514,6 +516,7 @@ function parseInteger(value: unknown): bigint | undefined {
   return undefined;
 }
 
+export { BATCH_INVOCATION_LIMIT } from "./types";
 export { analyzeContractStorage } from "./storageAnalysis";
 export type {
   ContractStorageEntry,
