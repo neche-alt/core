@@ -174,9 +174,22 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  MAX_SNAPSHOT_STATE_BYTES,
+  SnapshotSizeError,
 } from "./contractSnapshot";
 export { calculateStorageRent, renewContractStorage } from "./storageExpiration";
-export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
+export {
+  classifyContractDataTtl,
+  buildContractDataTtlResult,
+  readContractDataWithTtl,
+  shouldRenewContractData,
+} from "./contractDataTtl";
+export type {
+  ContractDataTtlState,
+  ContractDataTtlResult,
+  ReadContractDataWithTtlOptions,
+} from "./contractDataTtl";
+export type { ContractSnapshot, SnapshotDiff, SnapshotRedactOptions } from "./contractSnapshot";
 export { analyzeCallOptimization } from "./callOptimization";
 export type {
   CallOptimizationReport,

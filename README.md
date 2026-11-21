@@ -330,6 +330,66 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### TTL-aware contract data reads
+
+Soroban contract data expires. Distinguish present, expired, and missing entries:
+
+```ts
+import {
+  readContractDataWithTtl,
+  classifyContractDataTtl,
+  shouldRenewContractData,
+  calculateStorageRent,
+} from "sorokit-core";
+
+// Classify from raw RPC values
+const state = classifyContractDataTtl(response.latestLedger, entry?.liveUntilLedgerSeq);
+// → "present" | "expired" | "missing"
+
+// Error on expired — do not use stale data
+const result = readContractDataWithTtl(response.latestLedger, entry?.liveUntilLedgerSeq, {
+  errorOnExpired: true,
+});
+
+// Check whether renewal is needed
+const rent = await calculateStorageRent([contractId], { rpcUrl, networkPassphrase });
+if (rent.status === "ok" && shouldRenewContractData(rent.data.entries[0].remainingLedgers)) {
+  // renew before continuing
+}
+```
+
+See [docs/ttl-aware-contract-reads.md](docs/ttl-aware-contract-reads.md) for full guidance.
+
+#### Contract invocation batching
+
+`invokeBatchContracts` runs multiple calls and captures per-invocation outcomes:
+
+```ts
+import { invokeBatchContracts, BATCH_INVOCATION_LIMIT } from "sorokit-core";
+
+const result = await invokeBatchContracts(rpcUrl, networkConfig, horizonUrl, [
+  { contractId, method: "transfer", args, publicKey },
+  { contractId, method: "mint", args: mintArgs, publicKey },
+], signFn);
+
+if (result.status === "error") {
+  // Batch was rejected (e.g. exceeded BATCH_INVOCATION_LIMIT = 20)
+  console.error(result.error.message);
+} else {
+  for (const item of result.data) {
+    // Each item has status "ok" | "error" — partial success is normal
+    if (item.status === "error") {
+      console.error(`${item.contractId}.${item.method}: ${item.error.message}`);
+    }
+  }
+}
+```
+
+**No cross-invocation atomicity** — each call is a separate transaction. Split
+batches larger than `BATCH_INVOCATION_LIMIT` (20) into chunks.
+
+See [docs/contract-invocation-batching.md](docs/contract-invocation-batching.md) for full details.
+
 #### Contract deployment
 
 `buildContractDeploy` validates its configuration before any network call, so a
