@@ -122,6 +122,8 @@ export type {
 } from "./contractMetadataCompatibility";
 export {
   decodeContractError,
+  decodeNestedContractFailure,
+  formatNestedContractFailure,
   DEFAULT_CONTRACT_ERROR_MAP,
   FACTORY_CONTRACT_ERRORS,
   ROUTER_CONTRACT_ERRORS,
@@ -132,6 +134,8 @@ export type {
   ContractErrorInfo,
   ContractErrorMap,
   DecodedContractError,
+  NestedContractFailureNode,
+  NestedContractFailureTree,
 } from "./contractErrors";
 export { ContractInteractionBuilder, createContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
@@ -174,9 +178,11 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  MAX_SNAPSHOT_STATE_BYTES,
+  SnapshotSizeError,
 } from "./contractSnapshot";
 export { calculateStorageRent, renewContractStorage } from "./storageExpiration";
-export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff, SnapshotRedactOptions } from "./contractSnapshot";
 export { analyzeCallOptimization } from "./callOptimization";
 export type {
   CallOptimizationReport,

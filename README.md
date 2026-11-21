@@ -330,6 +330,29 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
+#### Nested contract failure decoding
+
+`decodeNestedContractFailure` traverses a full failure tree from a simulation or invocation
+error without dropping the original RPC response:
+
+```ts
+import { decodeNestedContractFailure, formatNestedContractFailure } from "sorokit-core";
+
+const tree = decodeNestedContractFailure(simulationError);
+
+// Human-readable indented summary
+console.log(formatNestedContractFailure(tree));
+// [0] ROUTER_SLIPPAGE_EXCEEDED: The realized swap price exceeded …
+//   [1] ROUTER_INSUFFICIENT_LIQUIDITY: Insufficient liquidity …
+
+// Programmatic access — raw value preserved at every node
+for (const node of tree.flat) {
+  console.log(node.depth, node.decoded.message, node.decoded.raw);
+}
+```
+
+See [docs/nested-contract-failures.md](docs/nested-contract-failures.md) for full details.
+
 #### Contract deployment
 
 `buildContractDeploy` validates its configuration before any network call, so a
