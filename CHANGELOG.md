@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Confirmation summary before example transaction signing (#105): `examples/react-wallet-connect` now shows a `TransactionConfirmationSummary` panel (network, destination, operation summary, asset, amount, estimated fee) after building a transaction and before the wallet prompt opens. `useSorokit` exposes `pendingSummary`, `confirmPayment`, and `cancelPayment` to implement the two-step confirm-then-sign flow. Unavailable fields (e.g. fee estimation fails) are labelled "—" rather than hidden.
 - Lazy loading (#682): `sorokit-core/lazy` entry with `loadModule(name)`, `preloadModules`, `isModuleLoaded` and `getLoadedModules` over a registry of lazy-loadable modules (soroban, integration, governance, keyManagement, streaming, privacy, compliance). Its initial load is ~0.5 KiB gzip, versus 50.3 KiB when the same modules are imported eagerly. `src/lazy.ts` moved to `src/lazy/index.ts` with its existing exports unchanged. See `docs/lazy-loading.md`.
 - Governance (#686): `getProposals`, `getProposal`, `voteOnProposal`, `getVotingPower` and `trackProposal` in `src/integration/governance.ts`, with a pluggable `GovernanceProvider`, `createHttpGovernanceProvider` and `configureGovernance`. Available on `client.integration` and exported from `sorokit-core/integration` and the root (as `getGovernanceVotingPower`). See `docs/governance.md`.
 - Initial public release of sorokit-core
