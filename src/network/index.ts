@@ -1,5 +1,9 @@
 export { AdaptiveRateLimiter, adaptiveRateLimiter, parseRetryAfter } from "./adaptiveRateLimiter";
-export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse } from "./adaptiveRateLimiter";
+export type { AdaptiveRateLimiterOptions, RateLimitState, RateLimitedResponse, RateLimitSignal } from "./adaptiveRateLimiter";
+
+// ─── Rate-limit HTTP response helper (#146) ────────────────────────────────
+export { rateLimitSignalToResponse } from "./rateLimitResponse";
+export type { RateLimitHttpResponse } from "./rateLimitResponse";
 export { resolveNetwork } from "./resolveNetwork";
 export type { NetworkOverrides } from "./resolveNetwork";
 export * from "./fallback";

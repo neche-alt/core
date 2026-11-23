@@ -545,6 +545,22 @@ export function recordCacheHit(
 }
 
 /**
+ * Records a throttle event for telemetry (`rate_limiter.throttle` counter).
+ * No-op when telemetry is uninitialized.
+ */
+export function recordThrottleEvent(
+  endpoint: string,
+  reason: string,
+  retryAfterMs: number,
+): void {
+  activeManager?.recordCounter("rate_limiter.throttle", 1, {
+    endpoint,
+    reason,
+    retryAfterMs,
+  });
+}
+
+/**
  * Returns aggregated metric summaries (duration percentiles, counts) from the active manager.
  * Emits a console warning if called before `initTelemetry()` (at most once per session).
  */
