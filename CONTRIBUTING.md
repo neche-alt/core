@@ -11,7 +11,7 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 ### Prerequisites
 
 - Node.js 18+
-- npm or yarn
+- Yarn 4 (via [Corepack](https://nodejs.org/api/corepack.html), which ships with Node 18+)
 - Git
 
 ### Development Setup
@@ -23,18 +23,22 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
    cd sorokit-core
    ```
 
-2. **Install dependencies**
+2. **Enable Corepack and install dependencies**
+
+   The repository declares `"packageManager": "yarn@4.x"` in `package.json`.
+   Corepack (bundled with Node.js) activates the correct Yarn version automatically.
 
    ```bash
-   npm install
+   corepack enable
+   yarn install
    ```
 
 3. **Verify the setup**
 
    ```bash
-   npm run typecheck
-   npm run test
-   npm run lint
+   yarn typecheck
+   yarn test
+   yarn lint
    ```
 
 ## Development Workflow
@@ -70,9 +74,9 @@ Be respectful and constructive. We're building a framework for the Stellar ecosy
 3. **Run checks locally**
 
    ```bash
-   npm run typecheck    # Check TypeScript types
-   npm run lint         # Run ESLint
-   npm run test         # Run tests with vitest
+   yarn typecheck   # Check TypeScript types
+   yarn lint        # Run ESLint
+   yarn test        # Run tests with vitest
    ```
 
    All checks must pass before opening a PR.
@@ -106,7 +110,7 @@ Before pushing, always rebase/merge the latest main:
 git fetch origin main
 git rebase origin/main
 # or if conflicts exist, resolve and commit
-npm run typecheck && npm run lint && npm run test
+yarn typecheck && yarn lint && yarn test
 git push origin your-branch
 ```
 
@@ -179,13 +183,13 @@ Your PR can only be merged if ALL of the following are true:
 
 ```bash
 # Run all tests once
-npm run test
+yarn test
 
 # Run in watch mode for development
-npm run test:watch
+yarn test:watch
 
 # Run specific test file
-npm run test -- account.test.ts
+yarn test -- account.test.ts
 ```
 
 ### Writing Tests
@@ -214,10 +218,10 @@ describe("account", () => {
 
 ## Code Style
 
-The project uses ESLint. Run `npm run lint` to check and fix issues automatically where possible:
+The project uses ESLint. Run `yarn lint` to check and fix issues automatically where possible:
 
 ```bash
-npm run lint -- --fix
+yarn lint --fix
 ```
 
 ### Style Guidelines
@@ -243,7 +247,7 @@ When adding new features, keep these principles in mind:
 TypeScript types must be valid. Run:
 
 ```bash
-npm run typecheck
+yarn typecheck
 ```
 
 No `any` without justification. If you must use `any`, add a comment explaining why.
@@ -293,9 +297,9 @@ Bump the version in `package.json` for releases (maintainers handle this).
 
 ## Build and Release
 
-- **Build:** `npm run build` — Outputs to `dist/` (ESM and CJS)
-- **Clean:** `npm run clean` — Removes `dist/`
-- **Dev:** `npm run dev` — Watch mode for development
+- **Build:** `yarn build` — Outputs to `dist/` (ESM and CJS)
+- **Clean:** `yarn clean` — Removes `dist/`
+- **Dev:** `yarn dev` — Watch mode for development
 
 Releases are handled by maintainers and published to npm.
 
