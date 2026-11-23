@@ -144,6 +144,13 @@ export type {
   BuilderStateUnsubscribe,
 } from "./contractInteractionBuilder";
 export { validateContractAbi } from "./validateContractAbi";
+
+// ─── Simulation failure display (#137) ────────────────────────────────────────
+export { buildSimulationFailureDisplay } from "./simulationErrorDisplay";
+export type {
+  SimulationFailureDisplay,
+  SimulationFailureArg,
+} from "./simulationErrorDisplay";
 export { SorobanSimulator } from "./simulator";
 export type {
   SimulatedMethodResult,
