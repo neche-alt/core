@@ -752,6 +752,34 @@ for await (const result of client.transaction.stream(publicKey, {
 }
 ```
 
+### Cursor persistence, reconnects, and deduplication
+
+Stream consumers can persist cursor positions across disconnects and restarts using `createCursorStore()` or `MemoryCursorStore`:
+
+```ts
+import { createCursorStore, PersistentEventDeduplicationStore } from "sorokit-core";
+
+const cursorStore = createCursorStore();
+const dedupStore = new PersistentEventDeduplicationStore();
+const cursorKey = `account:tx:${publicKey}`;
+
+let savedCursor = await cursorStore.load(cursorKey);
+
+for await (const result of client.transaction.stream(publicKey, { cursor: savedCursor })) {
+  if (result.status === "ok") {
+    for (const tx of result.data.transactions) {
+      if (await dedupStore.has(tx.hash)) continue;
+      await dedupStore.add(tx.hash);
+      processTransaction(tx);
+    }
+    if (result.data.nextCursor) {
+      await cursorStore.save(cursorKey, result.data.nextCursor);
+    }
+  }
+}
+```
+
+
 ### HTTP connection pooling
 
 Configure a bounded per-origin pool before creating Horizon or Soroban servers.
