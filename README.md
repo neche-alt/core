@@ -1057,6 +1057,7 @@ if (balance.status === "ok") console.log("Balance:", balance.data.result);
 | Example | Description |
 | :--- | :--- |
 | [`examples/router-swap`](examples/router-swap) | DEX swap: path discovery, quote, sign, submit, track |
+| [`examples/authorized-multi-contract`](examples/authorized-multi-contract) | Authorized multi-contract workflow: surface required auth, gate on signer approval, verify each confirmed result; failure cases for missing and rejected authorization |
 | [`examples/react-wallet-connect`](examples/react-wallet-connect) | React: connect wallet, fetch balances, build + sign + submit payment |
 | [`examples/vue-soroban`](examples/vue-soroban) | Vue 3: contract method selection, invoke with progress, account streaming |
 | [`examples/next-serverless`](examples/next-serverless) | Next.js + Lambda: server-side signing, batch account ops, Vercel/AWS handler |
