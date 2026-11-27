@@ -32,6 +32,7 @@ const {
   progress,
   result,
   error,
+  simulationFeedback,
   connect,
   disconnect,
   invokeMethod,
@@ -41,6 +42,7 @@ const {
 const progressLabel: Record<string, string> = {
   idle: "",
   preparing: "Preparing transaction…",
+  simulating: "Simulating transaction — estimating fees and validating inputs…",
   signing: "Approve in your wallet…",
   confirming: "Waiting for confirmation…",
   done: "Done",
@@ -128,6 +130,21 @@ function handleRead() {
       <p v-if="progress !== 'idle'" class="info">
         {{ progressLabel[progress] }}
       </p>
+
+      <!-- Simulation feedback — shown after simulation and before signing -->
+      <div
+        v-if="simulationFeedback"
+        :class="['sim-feedback', simulationFeedback.state === 'success' ? 'sim-ok' : 'sim-warn']"
+      >
+        <p class="sim-message">{{ simulationFeedback.message }}</p>
+        <p v-if="simulationFeedback.fee" class="sim-fee">
+          Estimated fee: <strong>{{ simulationFeedback.fee }} stroops</strong>
+          <em> — a successful simulation is not a guarantee of execution.</em>
+        </p>
+        <p v-if="simulationFeedback.detail" class="sim-detail">
+          {{ simulationFeedback.detail }}
+        </p>
+      </div>
     </section>
 
     <!-- Result -->
@@ -219,5 +236,42 @@ button:disabled {
   color: #8a1c1c;
   padding: 0.75rem;
   border-radius: 6px;
+}
+
+.sim-feedback {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border-left: 4px solid;
+}
+
+.sim-ok {
+  background: #f0fdf4;
+  border-color: #16a34a;
+}
+
+.sim-warn {
+  background: #fefce8;
+  border-color: #ca8a04;
+}
+
+.sim-message {
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+.sim-fee {
+  margin: 0 0 0.25rem;
+  font-size: 0.9em;
+}
+
+.sim-fee em {
+  color: #6b7280;
+}
+
+.sim-detail {
+  margin: 0;
+  font-size: 0.9em;
+  color: #92400e;
 }
 </style>
