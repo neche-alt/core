@@ -1323,6 +1323,12 @@ export {
   isOk,
   ok,
   toSorokitResult,
+  isInvalidInputError,
+  isWalletRejectionError,
+  isNetworkFailureError,
+  isSimulationFailureError,
+  isLedgerExecutionError,
+  classifyErrorDomain,
 } from "./shared/response";
 export type {
   RecoveryAttempt,
@@ -1331,6 +1337,7 @@ export type {
   SorokitErrorContext,
   SorokitErrorOptions,
   SorokitResult,
+  SorokitErrorDomain,
 } from "./shared/response";
 export {
   AssetMappingRegistry,

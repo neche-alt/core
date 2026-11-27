@@ -431,7 +431,7 @@ const issues = collectDeployConfigIssues({
 
 ---
 
-## Result Type
+## Result Type and Error Handling
 
 Every function in `sorokit-core` returns a `SorokitResult<T>`. Nothing throws. Nothing rejects silently.
 
@@ -453,7 +453,41 @@ if (result.status === "ok") {
 }
 ```
 
-This pattern means you handle errors where they happen, without wrapping everything in try/catch blocks or risking unhandled rejections propagating through your application.
+### Distinguishing Error Domains
+
+Developers can safely distinguish between the 5 operational failure domains using `classifyErrorDomain` or dedicated predicate helpers:
+
+```ts
+import {
+  classifyErrorDomain,
+  isInvalidInputError,
+  isWalletRejectionError,
+  isNetworkFailureError,
+  isSimulationFailureError,
+  isLedgerExecutionError,
+} from "sorokit-core";
+
+const domain = classifyErrorDomain(result.error);
+switch (domain) {
+  case "invalid_input":
+    // Client-side validation failed; do not retry without correcting inputs
+    break;
+  case "wallet_rejection":
+    // User declined signing in wallet; notify user cleanly
+    break;
+  case "network_failure":
+    // Transport or rate limit failure; safe to retry with backoff
+    break;
+  case "simulation_failure":
+    // Contract execution reverted; inspect error.cause, do not submit to ledger
+    break;
+  case "ledger_execution_failure":
+    // Failed consensus (sequence mismatch or fee surge); refresh sequence and retry
+    break;
+}
+```
+
+For full error codes, causes, and safe recovery procedures, see the [Structured SDK Error Reference](docs/error-reference.md).
 
 ---
 
