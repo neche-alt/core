@@ -47,6 +47,16 @@ if (result.status === "error") {
 }
 ```
 
+## Request Deduplication and Cancellation Safety
+
+Sorokit Core supports request deduplication (`createRequestDeduplicator`, `deduplicateRequest`) to coalesce concurrent identical read requests (e.g. `account.get`, `transaction.getStatus`, `soroban.simulate`).
+
+### Cancellation Race Invariants
+- **Independent Signals**: Each consumer provides its own `AbortSignal`. When one consumer cancels or times out, that caller's promise rejects immediately with the abort reason without affecting or corrupting other awaiting callers.
+- **Shared Request Preservation**: The underlying shared network request continues as long as at least one consumer remains subscribed.
+- **Full Cleanup on Complete Cancellation**: When all consumers cancel, the underlying request's abort controller triggers and in-flight state is cleaned up.
+- **Error Propagation**: If the shared fetcher rejects with an error, all active subscribers receive the rejection and resources are released.
+
 ## Extension guidance
 
 New workflows should compose existing builders and validators rather than create a second transaction-construction path. Policy modules should decide whether an operation is permitted before construction. Analysis modules should remain deterministic and side-effect free whenever possible. Network-dependent modules should use the shared server factory and classify failures through the shared error helpers.

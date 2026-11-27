@@ -35,9 +35,12 @@ export {
 } from "./mainnetSafety";
 
 export {
-  isBrowser,
-  isNode,
-  getEnvironment,
-  getStorage,
-} from "./environment";
-export type { RuntimeEnvironment } from "./environment";
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
+export type {
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";
