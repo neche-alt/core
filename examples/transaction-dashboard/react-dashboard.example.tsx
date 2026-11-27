@@ -5,9 +5,9 @@
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
  *
- * Layout is responsive: the metrics strip, status distribution, and recent
- * transaction list all reflow at mobile (≤ 480 px), tablet (≤ 768 px), and
- * desktop widths so essential actions and transaction details never overflow.
+ * For streaming a live, growing activity feed into a virtualized list (with
+ * cursor-based resume and backpressure handling), see:
+ * `examples/transaction-dashboard/virtualized-activity-feed.example.tsx`
  */
 import { useEffect, useState } from "react";
 import {
@@ -16,6 +16,7 @@ import {
   type DashboardSnapshot,
 } from "../../src/transaction/transactionDashboard";
 import type { TransactionResult } from "../../src/transaction/types";
+import { TransactionTimeline } from "./transaction-timeline";
 
 export const dashboard = new TransactionStatusAggregator({ maxEntries: 1000 });
 
@@ -138,43 +139,28 @@ export function TransactionStatusDashboard({
           </span>
         </div>
       </header>
+      <ul>
+        {snapshot.charts.statusDistribution.map((s) => (
+          <li key={s.label}>
+            {s.label}: {s.value}
+          </li>
+        ))}
+      </ul>
+      <ol>
+        {snapshot.recent.map((entry) => (
+          <li key={entry.tx.hash}>
+            {entry.tx.hash.slice(0, 8)}… — {entry.tx.status} ({entry.category})
+          </li>
+        ))}
+      </ol>
 
-      {/* Two-panel grid: collapses to single column below ~480 px */}
-      <div style={styles.grid}>
-        {/* Status distribution */}
-        <div style={styles.card}>
-          <p style={styles.cardTitle}>Status distribution</p>
-          <ul style={styles.list} aria-label="Status distribution">
-            {snapshot.charts.statusDistribution.map((s) => (
-              <li key={s.label} style={styles.listItem}>
-                <span>{s.label}</span>
-                <span style={styles.statusBadge}>{s.value}</span>
-              </li>
-            ))}
-          </ul>
+      {/* Per-transaction timeline for the most recent entry */}
+      {snapshot.recent.length > 0 && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3>Latest transaction</h3>
+          <TransactionTimeline tx={snapshot.recent[0].tx} />
         </div>
-
-        {/* Recent transactions — hash is truncated, never overflows */}
-        <div style={styles.card}>
-          <p style={styles.cardTitle}>Recent transactions</p>
-          <ol style={{ ...styles.list, counterReset: "tx" }} aria-label="Recent transactions">
-            {snapshot.recent.map((entry) => (
-              <li key={entry.tx.hash} style={styles.listItem}>
-                <span
-                  style={styles.hashCell}
-                  title={entry.tx.hash}
-                  aria-label={`Transaction hash ${entry.tx.hash}`}
-                >
-                  {entry.tx.hash.slice(0, 8)}…
-                </span>
-                <span style={styles.statusBadge}>
-                  {entry.tx.status}
-                </span>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </div>
+      )}
     </section>
   );
 }

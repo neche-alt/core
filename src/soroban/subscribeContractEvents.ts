@@ -176,6 +176,27 @@ function matchesEventFilter(
   return typeof filter === "function" ? filter(event) : matchesFilter(event, filter);
 }
 
+/**
+ * Filter a snapshot of contract events against a filter predicate.
+ *
+ * **Ordering**: The returned array preserves the input order exactly —
+ * no sorting is applied. Events are delivered in the order they appear
+ * in the `events` array, which is typically ledger-sequence order from
+ * `subscribeContractEvents` or `streamContractEvents`.
+ *
+ * **Deduplication**: This function does NOT deduplicate. Two events with
+ * the same `id` will both appear in the output if both pass the filter.
+ * Deduplication is handled upstream by the subscription layer.
+ *
+ * **Finality**: Events yielded by `subscribeContractEvents` are sourced
+ * from closed ledgers on Horizon. Stellar ledgers are final once closed —
+ * there are no reorgs. An event that appears in a closed ledger will not
+ * be removed or reordered by the network.
+ *
+ * @param events - Snapshot of contract events, typically in ledger order.
+ * @param filter - Optional filter criteria or predicate function.
+ * @returns Filtered events in the same order as the input.
+ */
 export function filterContractEvents(
   events: readonly ContractEvent[],
   filter?: ContractEventFilter | EventFilterPredicate,
