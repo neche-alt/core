@@ -18,6 +18,37 @@
  *   duplicate a completed/possibly-submitted operation.
  * - Progress is exposed incrementally via `onProgress` and summarized in the
  *   final report.
+ *
+ * ## Batching window tuning
+ *
+ * The request batcher in `src/network/requestBatching.ts` can auto-tune its
+ * collection window via `adaptiveWindow: true`. Under high throughput the
+ * window widens to coalesce more reads per round trip; under low throughput
+ * it shrinks to bound tail latency.  Configure it using `BatchingConfig`
+ * from `src/network/config.ts`:
+ *
+ * ```typescript
+ * import { createRequestBatcher } from "../network/requestBatching";
+ *
+ * const batcher = createRequestBatcher(myFetcher, {
+ *   adaptiveWindow: true,
+ *   minWindowMs: 5,       // never flush faster than 5 ms
+ *   maxWindowMs: 50,      // never accumulate longer than 50 ms
+ *   targetLatencyMs: 100, // hard latency cap — window never exceeds this
+ *   maxBatch: 50,         // flush immediately when 50 distinct keys queue up
+ *   onFlush: ({ batchSize, fillTimeMs }) => {
+ *     // Wire into your telemetry here (avoids a circular dep on telemetry.ts)
+ *     recordOperationDuration("batch.fill_time", fillTimeMs);
+ *     recordOperationDuration("batch.size", batchSize);
+ *   },
+ * });
+ * ```
+ *
+ * Key tradeoffs:
+ * - Wider window → more keys coalesced → fewer round trips → higher throughput.
+ * - Narrower window → lower per-request latency → better tail latency.
+ * - `targetLatencyMs` is a hard cap: the window never exceeds it.
+ * - `maxBatch` triggers an immediate flush regardless of window state.
  */
 
 import { ok, err, SorokitErrorCode } from "../shared/response";
