@@ -81,6 +81,16 @@ export {
   streamContractEvents,
   DEFAULT_RECOVERY_WINDOW_MS,
 } from "./subscribeContractEvents";
+// Re-export the event, filter, and subscription-option types so consumers
+// importing the `sorokit-core/soroban` subpath can type their callbacks and
+// options the same way they can from the root barrel (#82). The root entry
+// already re-exported these; the subpath is now consistent with it.
+export type {
+  ContractEvent,
+  ContractEventFilter,
+  EventFilterPredicate,
+  ContractEventSubscriptionOptions,
+} from "./subscribeContractEvents";
 export { streamContractEventsRealTime } from "./streamContractEventsRealTime";
 export {
   EventIndex,

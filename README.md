@@ -417,6 +417,29 @@ import { getOffers } from "sorokit-core/account";
 
 These subpaths emit independent ESM, CommonJS, and declaration files while the root import remains backward compatible.
 
+#### Consumer type checks for subpath exports
+
+Each declared subpath is verified as a consumer would experience it — the
+release validation pipeline compiles a small fixture against the **built**
+package through the real `exports` map (`node_modules/sorokit-core` → package
+root), so a subpath whose `types` condition points at a declaration that was
+not generated, re-exported, or peer-compatible fails the build instead of
+shipping broken imports.
+
+```bash
+npm run build              # generates dist/ declarations + bundles
+npm run validate:consumer-types   # compiles the fixture through package.json exports
+```
+
+The fixture (`tests/consumer-exports/consumer-fixture.ts`) imports a value and a
+type from every subpath (`.`, `./core`, `./testing`, `./wallet`, `./account`,
+`./transaction`, `./soroban`, `./network`, `./shared`, `./integration`,
+`./lazy`, `./compliance`, `./utility`). A second, deliberately broken fixture
+(`consumer-fixture-broken.ts`) imports a member no subpath exports and is
+asserted to fail, so the check catches bad import paths rather than silently
+passing. `npm run validate:exports` runs the same check as part of the release
+validation pipeline, and CI runs it in the build job after `npm run build`.
+
 ### `soroban`
 
 ```ts

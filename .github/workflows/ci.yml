@@ -158,8 +158,11 @@ jobs:
       - name: Build SDK
         run: npm run build
 
-      - name: Build and analyze vite-minimal example
-        run: node scripts/analyze-consumer-bundle.mjs --ci
+      - name: Validate consumer types
+        run: npm run validate:consumer-types --if-present
+
+      - name: Check bundle size
+        run: npm run size:check --if-present
 
   security:
     name: Security Audit
