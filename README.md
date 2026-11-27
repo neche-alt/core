@@ -1054,10 +1054,15 @@ if (balance.status === "ok") console.log("Balance:", balance.data.result);
 
 | Example | Shows |
 | --- | --- |
+| Example | Description |
+| :--- | :--- |
 | [`examples/router-swap`](examples/router-swap) | DEX swap: path discovery, quote, sign, submit, track |
 | [`examples/react-wallet-connect`](examples/react-wallet-connect) | React: connect wallet, fetch balances, build + sign + submit payment |
 | [`examples/vue-soroban`](examples/vue-soroban) | Vue 3: contract method selection, invoke with progress, account streaming |
 | [`examples/next-serverless`](examples/next-serverless) | Next.js + Lambda: server-side signing, batch account ops, Vercel/AWS handler |
+| [`examples/transaction-dashboard`](examples/transaction-dashboard) | React & Vue: responsive transaction timeline, status polling, and fee alerts |
+
+See [Framework Examples Index and Maintenance Guide](examples/README.md) for full setup instructions, typecheck commands, and the SDK release alignment checklist.
 
 Examples are type-checked against the SDK source with `npm run typecheck:examples`.
 
