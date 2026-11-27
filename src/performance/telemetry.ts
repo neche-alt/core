@@ -568,3 +568,25 @@ export function getTelemetrySpans(): SpanData[] {
   return activeManager.getExportedSpans();
 }
 
+/**
+ * Records the current transaction queue depth as a gauge metric
+ * (`transaction.queue.depth`). No-op when telemetry is uninitialized.
+ */
+export function recordQueueDepth(
+  depth: number,
+  attributes?: Record<string, unknown>,
+): void {
+  activeManager?.recordCounter("transaction.queue.depth", depth, attributes);
+}
+
+/**
+ * Records a transaction's queue wait time as a histogram metric
+ * (`transaction.queue.wait_ms`). No-op when telemetry is uninitialized.
+ */
+export function recordQueueWaitTime(
+  waitMs: number,
+  attributes?: Record<string, unknown>,
+): void {
+  activeManager?.recordHistogram("transaction.queue.wait_ms", waitMs, attributes, "ms");
+}
+
