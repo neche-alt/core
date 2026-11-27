@@ -3,10 +3,11 @@ import type { SorokitResult } from "../shared/response";
 import type { SorokitCache } from "../shared/cache";
 import { submitTransaction } from "./submitTransaction";
 import type { TransactionResult } from "./types";
+import { createHash } from "crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type BatchTransactionStatusCode = "pending" | "success" | "failed";
+export type BatchTransactionStatusCode = "pending" | "success" | "failed" | "duplicate";
 export type TransactionBatchStatus = BatchTransactionStatusCode;
 
 export interface BatchTransactionStatus {
@@ -26,6 +27,10 @@ export interface BatchTransactionStatus {
   confirmedAtMs?: number;
   /** Number of submission attempts made for this transaction (#839) */
   attemptCount?: number;
+  /** Caller-supplied nonce used to derive the idempotency key (#154) */
+  idempotencyNonce?: string;
+  /** SHA-256 derived idempotency key (hex). Present when idempotencyNonce was provided. */
+  idempotencyKey?: string;
 }
 
 export interface BatchSubmissionResult {
@@ -36,6 +41,8 @@ export interface BatchSubmissionResult {
   succeeded: number;
   /** Count of entries with status === "failed" */
   failed: number;
+  /** Count of entries skipped as duplicates (#154) */
+  duplicates?: number;
   transactions: BatchTransactionStatus[];
   /** Compatibility metadata for callers that compose a batch before submission. */
   status?: "all_success" | "all_failed" | "partial_success";
@@ -63,6 +70,60 @@ export interface BatchSubmissionOptions extends Partial<BatchConfig> {
   rollbackOnFailure?: boolean;
   continueOnError?: boolean;
   timeout?: number;
+}
+
+/**
+ * Per-item input for submitBatchWithIdempotency.
+ * Providing idempotencyNonce causes the submitter to derive a stable key
+ * and skip re-submission when the item was already confirmed in this process.
+ */
+export interface BatchItem {
+  /** Signed transaction XDR. */
+  xdr: string;
+  /**
+   * Caller-provided nonce. Combined with the XDR to derive a stable
+   * idempotency key so the same (xdr, nonce) pair is never submitted twice.
+   */
+  idempotencyNonce?: string;
+}
+
+// ─── Idempotency store ────────────────────────────────────────────────────────
+//
+// In-process store of confirmed idempotency keys. Keys are derived from
+// sha256(xdr + ":" + nonce) so the same transaction XDR with the same caller
+// nonce is never submitted more than once per process lifetime.
+//
+// Cross-process or cross-session deduplication is enforced by Horizon's
+// sequence-number ledger rules.
+
+interface IdempotencyRecord {
+  hash: string;
+  confirmedAtMs: number;
+}
+
+const _idempotencyStore = new Map<string, IdempotencyRecord>();
+
+/**
+ * Derive a stable idempotency key from a transaction XDR and a caller nonce.
+ * Uses SHA-256 so the key is a fixed-length hex string regardless of XDR size.
+ */
+export function deriveIdempotencyKey(xdr: string, nonce: string): string {
+  return createHash("sha256").update(`${xdr}:${nonce}`).digest("hex");
+}
+
+/**
+ * Expose the idempotency store for testing. Returns a snapshot of current keys.
+ * @internal
+ */
+export function _getIdempotencyStore(): Map<string, IdempotencyRecord> {
+  return _idempotencyStore;
+}
+
+/** Clear the idempotency store. Useful for test isolation.
+ * @internal
+ */
+export function _clearIdempotencyStore(): void {
+  _idempotencyStore.clear();
 }
 
 export type RetryStrategy = "none" | "retry_failed" | "retry_all";
@@ -272,4 +333,173 @@ export function getTransactionStatus(
     return err(SorokitErrorCode.VALIDATION, `Transaction index ${transactionIndex} out of range`);
   }
   return ok(transaction);
+}
+
+// ─── Idempotent batch submission (#154) ───────────────────────────────────────
+
+/**
+ * Submit a batch of transactions with per-item idempotency keys.
+ *
+ * Each item may carry an `idempotencyNonce`. When present, the submitter
+ * derives a stable key from sha256(xdr + ":" + nonce) and checks whether
+ * that key was already confirmed in this process. If it was, the item is
+ * marked `status: "duplicate"` and skipped — it is reported in the result
+ * but not re-submitted to the network.
+ *
+ * Items without a nonce behave identically to `submitBatch`.
+ *
+ * This protects against double-submission after a partial network failure
+ * where the caller retries the whole batch but some items already landed.
+ *
+ * @param items  - Array of `{ xdr, idempotencyNonce? }` objects.
+ * @param config - Same configuration as `submitBatch`.
+ *
+ * @example
+ * const result = await submitBatchWithIdempotency(
+ *   [
+ *     { xdr: signedXdr1, idempotencyNonce: "payment-abc-001" },
+ *     { xdr: signedXdr2, idempotencyNonce: "payment-abc-002" },
+ *   ],
+ *   { horizonUrl, networkPassphrase },
+ * );
+ * // On retry, items already confirmed are skipped (status: "duplicate").
+ */
+export async function submitBatchWithIdempotency(
+  items: BatchItem[],
+  config: BatchSubmissionOptions = {},
+): Promise<SorokitResult<BatchSubmissionResult>> {
+  if (!Array.isArray(items) || items.length === 0) {
+    return err(SorokitErrorCode.TX_SUBMIT_FAILED, "items must be a non-empty array");
+  }
+
+  const hasHorizonUrl =
+    typeof config.horizonUrl === "string" && config.horizonUrl.trim().length > 0;
+  const hasNetworkPassphrase =
+    typeof config.networkPassphrase === "string" && config.networkPassphrase.trim().length > 0;
+
+  if (hasHorizonUrl !== hasNetworkPassphrase) {
+    return err(
+      SorokitErrorCode.TX_SUBMIT_FAILED,
+      "config.horizonUrl and config.networkPassphrase must both be provided",
+    );
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (typeof item.xdr !== "string" || item.xdr.length === 0) {
+      return err(
+        SorokitErrorCode.INVALID_TRANSACTION,
+        `Item at index ${i} must have a non-empty xdr string`,
+      );
+    }
+  }
+
+  const horizonUrl = config.horizonUrl ?? "";
+  const networkPassphrase = config.networkPassphrase ?? "";
+
+  // Build entries, deriving idempotency keys and checking the store.
+  const entries: BatchTransactionStatus[] = items.map((item) => {
+    const entry: BatchTransactionStatus = {
+      xdr: item.xdr,
+      status: "pending",
+    };
+
+    if (item.idempotencyNonce) {
+      const key = deriveIdempotencyKey(item.xdr, item.idempotencyNonce);
+      entry.idempotencyNonce = item.idempotencyNonce;
+      entry.idempotencyKey = key;
+
+      // Check if already confirmed in this process.
+      const existing = _idempotencyStore.get(key);
+      if (existing) {
+        entry.status = "duplicate";
+        entry.hash = existing.hash;
+        entry.confirmedAtMs = existing.confirmedAtMs;
+        entry.error = `Duplicate: already submitted (hash: ${existing.hash})`;
+      }
+    }
+
+    return entry;
+  });
+
+  // Only submit entries that are not duplicates and when horizonUrl is provided.
+  if (hasHorizonUrl) {
+    const toSubmit = entries.filter((e) => e.status === "pending");
+
+    if (config.mode === "parallel") {
+      const results = await Promise.allSettled(
+        toSubmit.map((entry) =>
+          submitEntry(entry, horizonUrl, networkPassphrase, config.cache),
+        ),
+      );
+      for (let i = 0; i < toSubmit.length; i++) {
+        const entry = toSubmit[i] as BatchTransactionStatus;
+        const settled = results[i] as PromiseSettledResult<SorokitResult<TransactionResult>>;
+        if (settled.status === "fulfilled") {
+          applyResult(entry, settled.value);
+        } else {
+          entry.status = "failed";
+          entry.error =
+            settled.reason instanceof Error
+              ? (settled.reason as Error).message
+              : String(settled.reason);
+          entry.confirmedAtMs = Date.now();
+        }
+        // Record confirmed items in the idempotency store.
+        if (entry.status === "success" && entry.idempotencyKey && entry.hash) {
+          _idempotencyStore.set(entry.idempotencyKey, {
+            hash: entry.hash,
+            confirmedAtMs: entry.confirmedAtMs ?? Date.now(),
+          });
+        }
+      }
+    } else {
+      // Sequential (default)
+      for (const entry of toSubmit) {
+        const result = await submitEntry(entry, horizonUrl, networkPassphrase, config.cache);
+        applyResult(entry, result);
+        // Record confirmed items in the idempotency store.
+        if (entry.status === "success" && entry.idempotencyKey && entry.hash) {
+          _idempotencyStore.set(entry.idempotencyKey, {
+            hash: entry.hash,
+            confirmedAtMs: entry.confirmedAtMs ?? Date.now(),
+          });
+        }
+      }
+    }
+  } else {
+    // No horizonUrl — mark non-duplicate entries as success (dry-run / test mode).
+    for (const entry of entries) {
+      if (entry.status === "pending") {
+        entry.status = "success";
+      }
+    }
+  }
+
+  // Build summary — duplicates are not counted as failures.
+  const succeeded = entries.filter((e) => e.status === "success").length;
+  const failed = entries.filter((e) => e.status === "failed").length;
+  const duplicates = entries.filter((e) => e.status === "duplicate").length;
+
+  let summary: BatchSubmissionResult["summary"];
+  if (failed === 0) {
+    summary = "all_success";
+  } else if (succeeded === 0 && duplicates === 0) {
+    summary = "all_failed";
+  } else {
+    summary = "partial_success";
+  }
+
+  return ok({
+    ok: summary === "all_success",
+    summary,
+    succeeded,
+    failed,
+    duplicates,
+    transactions: entries,
+    status: summary,
+    submitted: items.length,
+    atomic: config.atomic ?? false,
+    rollbackOnFailure: config.rollbackOnFailure ?? false,
+  });
 }
