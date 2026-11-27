@@ -12,6 +12,7 @@ import type {
   WebAuthnAuthenticationOptions,
   WebAuthnCredentialData,
 } from "./types";
+import { requireBrowserAPIs } from "../../shared/browserCompatibility";
 
 /**
  * Check if WebAuthn is available in the current environment.
@@ -100,6 +101,9 @@ export async function registerWebAuthn(
       "WebAuthn is not available in this environment",
     );
   }
+
+  const guard = requireBrowserAPIs(["crypto.subtle"]);
+  if (guard.status === "error") return guard;
 
   try {
     const challenge = generateChallenge();
@@ -199,6 +203,9 @@ export async function authenticateWebAuthn(
       "WebAuthn is not available in this environment",
     );
   }
+
+  const guard = requireBrowserAPIs(["crypto.subtle"]);
+  if (guard.status === "error") return guard;
 
   try {
     const challenge = generateChallenge();
