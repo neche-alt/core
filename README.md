@@ -642,19 +642,36 @@ Applications that only need one subsystem can use the tree-shakeable
 
 ## Networks
 
-```ts
-// Preset networks
-createSorokitClient({ network: "mainnet" });
-createSorokitClient({ network: "testnet" });
-createSorokitClient({ network: "futurenet" });
+`sorokit-core` provides canonical network configurations and safe defaults for all Stellar networks:
 
-// Override Horizon or RPC URLs for self-hosted infrastructure
-createSorokitClient({
+| Network Preset | Horizon Endpoint | Soroban RPC Endpoint | Network Passphrase |
+| :--- | :--- | :--- | :--- |
+| `mainnet` | `https://horizon.stellar.org` | `https://mainnet.stellar.validationcloud.io/v1/soroban/rpc` | `Public Global Stellar Network ; September 2015` |
+| `testnet` | `https://horizon-testnet.stellar.org` | `https://soroban-testnet.stellar.org` | `Test SDF Network ; September 2015` |
+| `futurenet` | `https://horizon-futurenet.stellar.org` | `https://rpc-futurenet.stellar.org` | `Test SDF Future Network ; October 2022` |
+
+```ts
+import { createSorokitClient, resolveNetwork } from "sorokit-core";
+
+// 1. Preset network
+const client = createSorokitClient({ network: "testnet" });
+
+// 2. Custom RPC or Horizon endpoints (HTTPS mandatory for remote hosts)
+const customClient = createSorokitClient({
   network: "mainnet",
   horizonUrl: "https://my-horizon.example.com",
   rpcUrl: "https://my-rpc.example.com",
 });
 ```
+
+### Testnet-to-Mainnet Checklist
+When deploying to Mainnet:
+- Confirm client resolves the mainnet passphrase (`Public Global Stellar Network ; September 2015`).
+- Use dedicated RPC infrastructure rather than public testing nodes.
+- Validate endpoint health with `checkNetworkCapabilities`.
+- Ensure spending thresholds and fee limits (`checkMainnetSafety`) are active.
+
+See the complete [Network Configuration and Safe Defaults Guide](docs/network-configuration.md).
 
 ---
 
