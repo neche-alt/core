@@ -153,6 +153,11 @@ export interface OperationInfo {
  */
 export interface GetOperationsOptions {
   /**
+   * Optional `AbortSignal` to cancel the in-flight Horizon request.
+   * Aborting rejects the returned promise with an `AbortError`.
+   */
+  signal?: AbortSignal | undefined;
+  /**
    * Filter to operations of this type only. Client-side filter applied after
    * Horizon returns results (Horizon's `forAccount` does not support type
    * filtering natively).
