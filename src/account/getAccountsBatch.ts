@@ -10,6 +10,12 @@ export interface GetAccountsBatchOptions {
   cache?: SorokitCache;
   ttlMs?: number;
   includeMetadata?: false;
+  /**
+   * Maximum number of concurrent account fetches.
+   * Defaults to 0 (unlimited). Set to a positive integer to limit parallelism
+   * and avoid exhausting connections or triggering upstream throttling.
+   */
+  concurrency?: number;
 }
 
 export interface GetAccountsBatchWithMetadataOptions
@@ -96,9 +102,37 @@ function getMetadataResult(
 }
 
 /**
+ * Process an array of async tasks with an optional concurrency cap.
+ *
+ * When `concurrency <= 0` all tasks are started simultaneously via
+ * `Promise.allSettled`. Otherwise tasks are grouped into sequential chunks of
+ * `concurrency` size, with each chunk running in parallel internally.
+ * Result order matches input order regardless of chunk boundaries.
+ */
+async function runWithConcurrency<T>(
+  tasks: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<T[]> {
+  if (concurrency <= 0) {
+    return Promise.all(tasks.map((task) => task()));
+  }
+
+  const results: T[] = [];
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    const chunk = tasks.slice(i, i + concurrency);
+    const chunkResults = await Promise.all(chunk.map((task) => task()));
+    results.push(...chunkResults);
+  }
+  return results;
+}
+
+/**
  * Fetch full account details for multiple accounts in parallel from Horizon.
  * Uses Promise.allSettled so a single account failure never blocks the rest.
  * Returns an array of individual results, each carrying its own ok/error status.
+ *
+ * Pass `concurrency` in options to cap the number of simultaneous fetches and
+ * avoid exhausting upstream rate limits.
  */
 export function getAccountsBatch(
   horizonUrl: string,
@@ -121,8 +155,14 @@ export async function getAccountsBatch(
     }
 
     const uniqueKeys = Array.from(new Set(publicKeys));
+    const concurrency = options?.concurrency ?? 0;
+
+    const tasks = uniqueKeys.map(
+      (publicKey) => () => fetchDedupedAccount(horizonUrl, publicKey, options),
+    );
+
     const settled = await Promise.allSettled(
-      uniqueKeys.map((publicKey) => fetchDedupedAccount(horizonUrl, publicKey, options)),
+      await runWithConcurrency(tasks, concurrency),
     );
 
     const resultMap = new Map<string, SorokitResult<AccountInfo>>();

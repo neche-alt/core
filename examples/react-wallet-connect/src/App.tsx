@@ -14,7 +14,7 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
-import type { AssetBalance } from "../../../src/account/types";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 // In a real app this typically lives in a context provider or module-level singleton.
@@ -186,11 +186,36 @@ export default function App() {
       )}
 
       {/* Feedback */}
+      {error && (
+        <p
+          role="alert"
+          style={{
+            marginTop: "1rem",
+            color: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#7a4f00"
+              : "#8a1c1c",
+            background: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#fff8e1"
+              : "#fdecec",
+            padding: "0.75rem",
+            borderRadius: 6,
+          }}
+        >
+          {error}
+        </p>
+      )}
       {status && !error && (
         <p style={{ marginTop: "1rem", background: "#eef6ff", padding: "0.75rem", borderRadius: 6 }}>
           {status}
         </p>
       )}
+
+      {/*
+        Opt-in SDK diagnostics panel — debug only.
+        Hidden in production: set show={process.env.NODE_ENV === "development"}
+        or remove the prop to hide it entirely. Never shows secrets.
+      */}
+      <DiagnosticsPanel show={true} network="testnet" />
     </div>
   );
 }
