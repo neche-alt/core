@@ -13,6 +13,19 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- Distinguishing user rejection from transport or contract failure
+
+## Handling wallet rejection
+
+When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
+
+| Error code | Displayed message |
+|---|---|
+| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
+| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
+| Any other failure | Original SDK error message |
+
+The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
 
 ## Files
 
@@ -20,7 +33,8 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
-| `src/WalletConnectionDemo.tsx` | Polished demo: empty, loading, connected, rejected, disconnected states |
+| `src/DiagnosticsPanel.tsx` | Opt-in `[DEBUG]` diagnostics panel (see below) |
+| `src/diagnosticsUtils.ts` | Pure helpers: status symbols, colours, latency formatting, secret detection |
 
 ## Setup
 
@@ -63,40 +77,40 @@ Type-check the example against the SDK source:
 npm run typecheck:examples
 ```
 
-## Wallet Connection Demo
+## SDK Diagnostics Panel
 
-`WalletConnectionDemo` is a focused component that demonstrates all five wallet connection states driven by `WalletStatusTracker` from sorokit-core.
+`DiagnosticsPanel` is an opt-in `[DEBUG]` section that runs `runDiagnostics` from `sorokit-core` and displays the results inline. It is intentionally distinct from the main app UI: muted colours, monospace font, dashed border, and a `[DEBUG]` label.
 
-### States shown
+### What it shows
 
-| State | When |
-|---|---|
-| **Empty** | No wallet ever connected; shows a connect prompt |
-| **Loading** | `connecting` or `authenticating` — spinner with extension prompt |
-| **Connected** | Wallet connected; shows wallet name, truncated address, disconnect button |
-| **Rejected** | `failed` or `error` — shows error message and a retry button |
-| **Disconnected** | Previously connected but now disconnected; shows a reconnect button |
+- Overall SDK status (healthy / degraded / unavailable)
+- SDK version, network, and report timestamp
+- Per-check rows: Horizon connectivity, Soroban RPC, wallet adapter, network configuration, runtime environment
+- Latency for external checks
+- Issues and recommendations per check (expand a row to see them)
+- Aggregated recommendation list
 
-A `StatusBar` with a coloured dot and an `aria-live="polite"` region is always visible, so screen readers announce every state transition.
-
-### Usage
+### How to use it
 
 ```tsx
-import { WalletConnectionDemo } from "./WalletConnectionDemo";
-import { WalletStatusTracker } from "sorokit-core/wallet";
-import { FreighterAdapter } from "sorokit-core/wallet";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
-const tracker = new WalletStatusTracker();
-const adapter = new FreighterAdapter(swkInstance);
+// Always visible (useful during local development):
+<DiagnosticsPanel show={true} network="testnet" />
 
-// In your component:
-<WalletConnectionDemo
-  status={tracker.status}
-  callbacks={{
-    onConnect: () => tracker.connect(adapter),
-    onDisconnect: () => tracker.disconnect(adapter),
-  }}
-/>
+// Visible only in development builds:
+<DiagnosticsPanel show={process.env.NODE_ENV === "development"} network="testnet" />
+
+// Hidden — safe to leave in the tree:
+<DiagnosticsPanel show={false} />
 ```
 
-All wallet logic stays in SDK calls (`tracker.connect`, `tracker.disconnect`). The component is purely presentational.
+Pass `walletAdapter` to include a wallet availability check:
+
+```tsx
+<DiagnosticsPanel show={true} network="testnet" walletAdapter={myAdapter} />
+```
+
+### Security
+
+The panel never renders private keys, seeds, mnemonics, or other secrets. The underlying `runDiagnostics` API is strictly read-only: it never connects a wallet, signs anything, or changes SDK state. `containsSecret` in `diagnosticsUtils.ts` provides a defence-in-depth check before any value is rendered.
