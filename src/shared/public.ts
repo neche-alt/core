@@ -35,15 +35,12 @@ export {
 } from "./mainnetSafety";
 
 export {
-  emitDeprecationWarning,
-  deprecate,
-  setDeprecationPolicy,
-  getDeprecationPolicy,
-  formatDeprecationMessage,
-  getEmittedDeprecationWarnings,
-  clearDeprecationWarnings,
-} from "./deprecation";
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
 export type {
-  DeprecationWarningOptions,
-  DeprecationPolicyOptions,
-} from "./deprecation";
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";

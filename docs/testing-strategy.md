@@ -108,6 +108,10 @@ every PR. If a future contribution adds real-testnet coverage, it should:
   });
   ```
 
+  Similarly, `src/tests/sorobanXdrRoundTrip.property.test.ts` asserts `decode(encode(value)) === value`
+  round-trip equivalence for Soroban XDR values across boundary integers (`u32`, `i32`, `u64`, `i64`, `u128`, `i128`),
+  nested vectors, maps, and structs using deterministic seeds and explicit exclusions for invalid types.
+
   Bound the generated range to values that are actually meaningful for the
   function under test (e.g. within Stellar's `MAX_STROOPS`), rather than
   letting `fast-check` generate the full `bigint` domain — an out-of-range
