@@ -221,6 +221,34 @@ for (const event of events) {
 }
 ```
 
+## Encoding and decoding typed ABI values
+
+For structured arguments or parsing complex return values, use `encodeAbiValue` and `decodeAbiValue`. They support nested vectors, maps, structs, and full-range integers (`u32` through `i128`):
+
+```ts
+import { encodeAbiValue, decodeAbiValue } from "sorokit-core";
+
+// Encode a typed struct argument
+const structDesc = {
+  type: "struct",
+  fields: [
+    { name: "recipient", type: "string" },
+    { name: "amount", type: "u128" },
+    { name: "tags", type: { type: "vec", elementType: "string" } },
+  ],
+};
+
+const scVal = encodeAbiValue(structDesc, {
+  recipient: "GDST...",
+  amount: 1000000000n,
+  tags: ["royalty", "escrow"],
+});
+
+// Decode back to native JavaScript data structures
+const decoded = decodeAbiValue(scVal, structDesc);
+console.log(decoded.recipient, decoded.amount, decoded.tags);
+```
+
 ## Testing tips
 
 ```ts
