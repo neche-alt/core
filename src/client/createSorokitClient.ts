@@ -313,6 +313,7 @@ import type {
   RotateSecretKeyOptions,
 } from "../shared/keyManagement";
 import type { Transaction } from "@stellar/stellar-sdk";
+import { assertConfigSafe } from "../shared/environment";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -1142,6 +1143,12 @@ export function validateClientConfig(
       "Configuration must be an object",
     );
   }
+
+  // SSR safety: reject config strings that contain server-only global
+  // references (e.g. process.env.SECRET interpolated by accident) when
+  // running in a browser context.
+  const safeCheck = assertConfigSafe(config as unknown as Record<string, unknown>);
+  if (safeCheck.status === "error") return safeCheck;
 
   const validNetworks = ["mainnet", "testnet", "futurenet"];
   if (!config.network) {

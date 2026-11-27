@@ -3,22 +3,44 @@
  * Centralizes runtime detection, timers, crypto, and storage.
  */
 
-import { ok, err, SorokitErrorCode } from "./response";
+import { err, ok, SorokitErrorCode } from "./response";
 import type { SorokitResult } from "./response";
 
 export type RuntimeEnvironment = "browser" | "node" | "unknown";
 
 /**
- * Detailed capability profile for the active runtime environment.
+ * Finer-grained runtime context classification used by the SSR config guard.
+ *
+ * - "browser"  — real browser (window + document present)
+ * - "server"   — Node.js or Deno without window
+ * - "edge"     — edge runtime (no window, no process.versions.node, but fetch present)
+ * - "unknown"  — none of the above
  */
-export interface RuntimeCapabilities {
-  environment: RuntimeEnvironment;
-  hasFetch: boolean;
-  hasAbortController: boolean;
-  hasCrypto: boolean;
-  hasStorage: boolean;
-  hasWebAuthn: boolean;
-}
+export type RuntimeContext = "browser" | "server" | "edge" | "unknown";
+
+/**
+ * Globals that must only be read on the server.
+ * Reading these in a browser build leaks secrets to the client.
+ */
+export const SERVER_ONLY_GLOBALS: readonly string[] = [
+  "process",
+  "__dirname",
+  "__filename",
+  "Buffer",
+] as const;
+
+/**
+ * Globals that exist only in the browser.
+ * Accessing these on the server results in a ReferenceError.
+ */
+export const BROWSER_ONLY_GLOBALS: readonly string[] = [
+  "window",
+  "document",
+  "localStorage",
+  "sessionStorage",
+  "navigator",
+  "location",
+] as const;
 
 /**
  * Safely detect whether the current runtime environment is a browser.
@@ -42,7 +64,19 @@ export function isNode(): boolean {
 }
 
 /**
- * Get the current runtime environment type.
+ * Detect edge runtimes (Cloudflare Workers, Vercel Edge, etc.) — no window,
+ * no process.versions.node, but global fetch is present.
+ */
+export function isEdge(): boolean {
+  return (
+    !isBrowser() &&
+    !isNode() &&
+    typeof (globalThis as Record<string, unknown>).fetch === "function"
+  );
+}
+
+/**
+ * Get the current runtime environment type (coarse, backward-compatible).
  */
 export function getEnvironment(): RuntimeEnvironment {
   if (isBrowser()) return "browser";
@@ -51,48 +85,93 @@ export function getEnvironment(): RuntimeEnvironment {
 }
 
 /**
- * Detect runtime capabilities available in the current environment.
+ * Get the fine-grained runtime context used by the SSR config guard.
  */
-export function getRuntimeCapabilities(): RuntimeCapabilities {
-  const env = getEnvironment();
-  const hasFetch = typeof globalThis.fetch === "function";
-  const hasAbortController = typeof globalThis.AbortController !== "undefined";
-  let hasCrypto = false;
-  try {
-    const bytes = crypto.randomBytes(4);
-    hasCrypto = bytes.length === 4;
-  } catch {
-    hasCrypto = false;
-  }
-  const storage = getStorage();
-  const hasStorage = storage !== null && typeof storage.getItem === "function";
-  const hasWebAuthn =
-    typeof window !== "undefined" &&
-    typeof (window as any).PublicKeyCredential !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    typeof navigator.credentials !== "undefined";
-
-  return {
-    environment: env,
-    hasFetch,
-    hasAbortController,
-    hasCrypto,
-    hasStorage,
-    hasWebAuthn,
-  };
+export function getRuntimeContext(): RuntimeContext {
+  if (isBrowser()) return "browser";
+  if (isNode()) return "server";
+  if (isEdge()) return "edge";
+  return "unknown";
 }
 
 /**
- * Asserts that the current runtime environment is a browser.
- * Returns ok(undefined) in a browser, or err(WALLET_BROWSER_ONLY) with an actionable message.
+ * Assert that a server-only global is not being accessed in a browser context.
+ *
+ * Returns err(INVALID_CONFIG, …) when called from a browser environment.
+ * Returns ok(undefined) in server or edge contexts.
+ *
+ * @example
+ * const guard = assertNotBrowser("process");
+ * if (guard.status === "error") return guard;
+ * const val = process.env.SECRET_KEY;
  */
-export function assertBrowserEnvironment(operationName: string): SorokitResult<void> {
-  if (!isBrowser()) {
+export function assertNotBrowser(globalName: string): SorokitResult<void> {
+  if (isBrowser()) {
     return err(
-      SorokitErrorCode.WALLET_BROWSER_ONLY,
-      `${operationName} requires a browser environment. Running in "${getEnvironment()}" is not supported for browser-only operations.`,
+      SorokitErrorCode.INVALID_CONFIG,
+      `Server-only global "${globalName}" must not be accessed in a browser context. ` +
+        `Move this configuration to a server-side initializer or use environment-safe ` +
+        `config inputs instead.`,
     );
   }
+  return ok(undefined);
+}
+
+/**
+ * Assert that a browser-only global is not being accessed in a server context.
+ *
+ * Returns err(INVALID_CONFIG, …) when called from a Node.js / edge context.
+ * Returns ok(undefined) in browser contexts.
+ *
+ * @example
+ * const guard = assertNotServer("window");
+ * if (guard.status === "error") return guard;
+ * const origin = window.location.origin;
+ */
+export function assertNotServer(globalName: string): SorokitResult<void> {
+  if (isNode() || isEdge()) {
+    return err(
+      SorokitErrorCode.INVALID_CONFIG,
+      `Browser-only global "${globalName}" must not be accessed in a server or edge context. ` +
+        `Use environment-safe alternatives (e.g. explicit URL config) instead.`,
+    );
+  }
+  return ok(undefined);
+}
+
+/**
+ * Validate that the provided config object does not contain references to
+ * server-only globals when running in a browser context.
+ *
+ * Checks string values in the config for patterns that suggest they were
+ * derived from process.env, __dirname, or similar server-only sources
+ * (e.g. a value that is literally the string "process.env.SECRET").
+ *
+ * This is a best-effort surface check — it cannot prevent all leakage but
+ * will catch accidental template-literal interpolation of server globals.
+ */
+export function assertConfigSafe(
+  config: Record<string, unknown>,
+  context: RuntimeContext = getRuntimeContext(),
+): SorokitResult<void> {
+  if (context !== "browser") {
+    // Only meaningful to guard in browser context
+    return ok(undefined);
+  }
+
+  const serverGlobalPattern = /\bprocess\.env\.\w+|\b__dirname\b|\b__filename\b/;
+
+  for (const [key, value] of Object.entries(config)) {
+    if (typeof value === "string" && serverGlobalPattern.test(value)) {
+      return err(
+        SorokitErrorCode.INVALID_CONFIG,
+        `Config field "${key}" contains a server-only global reference ("${value}"). ` +
+          `Do not interpolate process.env or __dirname into client-side config. ` +
+          `Pass explicit values or use a build-time replacement instead.`,
+      );
+    }
+  }
+
   return ok(undefined);
 }
 

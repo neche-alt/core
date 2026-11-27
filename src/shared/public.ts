@@ -35,6 +35,11 @@ export {
 } from "./mainnetSafety";
 
 export {
-  exportSafeDiagnostics,
-} from "./diagnostics";
-export type { SafeDiagnosticsExport } from "./diagnostics";
+  getRuntimeContext,
+  assertNotBrowser,
+  assertNotServer,
+  assertConfigSafe,
+  SERVER_ONLY_GLOBALS,
+  BROWSER_ONLY_GLOBALS,
+} from "./environment";
+export type { RuntimeContext } from "./environment";
