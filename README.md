@@ -334,6 +334,37 @@ getNetworkBaseFee("futurenet");              // 200
 NETWORK_BASE_FEE_MULTIPLIERS.futurenet;      // 2
 ```
 
+#### Bounded Horizon pagination
+
+`exportTransactionHistory` and `queryTransactionHistory` walk Horizon pages by
+advancing a cursor to the last record's `paging_token`. Traversal is bounded so
+a misbehaving endpoint cannot lose data or loop forever:
+
+- a page with **no records** ends the sweep;
+- a **full page whose last record has no `paging_token`** (a malformed next link)
+  ends the sweep without following the broken link;
+- a **repeated cursor** — a full page whose last `paging_token` does not advance —
+  ends the sweep instead of fetching the same page forever;
+- a hard cap (`HORIZON_MAX_PAGES`) limits the total number of pages fetched.
+
+```ts
+import {
+  exportTransactionHistory,
+  HORIZON_PAGE_LIMIT,
+  HORIZON_MAX_PAGES,
+} from "sorokit-core/transaction";
+
+HORIZON_PAGE_LIMIT; // 200 — records requested per Horizon page
+HORIZON_MAX_PAGES;  // safety cap on pages fetched in one sweep
+
+const result = await exportTransactionHistory(horizonUrl, publicKey, {
+  format: "json",
+});
+```
+
+Deterministic fixtures covering first, middle, final, empty, malformed-link,
+and repeated-cursor pages live in `src/tests/horizonPaginationFixtures.test.ts`.
+
 ### Smaller imports
 
 The SDK also exposes module bundles for applications that only need one part of the API:
