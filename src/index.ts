@@ -2199,3 +2199,7 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Request Deduplication (#76) ─────────────────────────────────────────────
+export { createRequestDeduplicator } from "./network/requestDedup";
+export type { DedupConfig, RequestDeduplicator } from "./network/requestDedup";
