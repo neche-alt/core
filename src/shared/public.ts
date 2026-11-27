@@ -35,11 +35,12 @@ export {
 } from "./mainnetSafety";
 
 export {
-  getRuntimeContext,
-  assertNotBrowser,
-  assertNotServer,
-  assertConfigSafe,
-  SERVER_ONLY_GLOBALS,
-  BROWSER_ONLY_GLOBALS,
-} from "./environment";
-export type { RuntimeContext } from "./environment";
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
+export type {
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";
