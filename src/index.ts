@@ -1072,6 +1072,11 @@ export type {
 } from "./soroban/storageMigration";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
+  validateContractWasm,
+  MAX_WASM_SIZE,
+} from "./soroban/validateContractWasm";
+export type { ValidatedContractWasm } from "./soroban/validateContractWasm";
+export {
   validateDeployConfig,
   collectDeployConfigIssues,
   formatDeployConfigIssues,
@@ -1327,6 +1332,12 @@ export {
   isOk,
   ok,
   toSorokitResult,
+  isInvalidInputError,
+  isWalletRejectionError,
+  isNetworkFailureError,
+  isSimulationFailureError,
+  isLedgerExecutionError,
+  classifyErrorDomain,
 } from "./shared/response";
 export type {
   RecoveryAttempt,
@@ -1335,6 +1346,7 @@ export type {
   SorokitErrorContext,
   SorokitErrorOptions,
   SorokitResult,
+  SorokitErrorDomain,
 } from "./shared/response";
 export {
   AssetMappingRegistry,
@@ -2191,3 +2203,7 @@ export type {
   WebSocketTransactionFeedOptions,
   WebSocketTransactionFeedHandle,
 } from "./transaction/transactionDashboard";
+
+// ─── Request Deduplication (#76) ─────────────────────────────────────────────
+export { createRequestDeduplicator } from "./network/requestDedup";
+export type { DedupConfig, RequestDeduplicator } from "./network/requestDedup";

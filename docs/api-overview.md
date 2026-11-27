@@ -1,11 +1,11 @@
 # Sorokit Core API Reference
 
-Sorokit Core is a framework-independent TypeScript SDK for Stellar wallets,
+`sorokit-core` is a framework-independent TypeScript SDK for Stellar wallets,
 accounts, transactions, and Soroban contracts.
 
 Start with {@link createSorokitClient} to create a client. Browse its
 {@link SorokitClient} interface for wallet, account, transaction, Soroban, and
-network operations. Public methods return {@link SorokitResult} values.
+network operations. All public methods return {@link SorokitResult} values.
 
 ```ts
 import { createSorokitClient } from "sorokit-core";
@@ -17,34 +17,71 @@ if (result.status === "ok") {
 }
 ```
 
-## Resource Ownership and Lifecycle
+---
 
-Applications need to know whether shared clients own connections, timers, or subscriptions so they can reuse and close them correctly:
+## Task-Based Navigation
 
-1. **SorokitClient (`createSorokitClient`)**:
-   - **Ownership**: The client instance is stateless and lightweight; it does *not* own persistent TCP sockets, worker threads, or background timers.
-   - **Reuse**: Safe to share as a singleton throughout an application, or instantiate per-request in serverless/edge environments without resource leaks.
-   - **Teardown**: Because no sockets or timers are held, no explicit `close()` or `dispose()` is needed on the client itself.
+Find what you need by task rather than navigating individual modules:
 
-2. **HTTP Connection Pooling (`ConnectionPool`, `setConnectionPool`)**:
-   - **Ownership**: The application owns instances of `ConnectionPool`.
-   - **Reuse**: A single `ConnectionPool` should be shared across server instances via `setConnectionPool(pool)` to throttle concurrency and reuse socket connections.
-   - **Teardown**: Call `pool.close()` upon application or test shutdown to clear keep-alive idle timers and abort pending requests.
+### 1. Connect a Wallet and Manage Sessions
+- **Client Entrypoint**: {@link createSorokitClient} → `client.wallet`
+- **Adapters**: {@link FreighterAdapter}, {@link LobstrAdapter}, {@link XBullAdapter}, {@link RabetAdapter}
+- **Operations**: `client.wallet.connect`, `client.wallet.disconnect`, `client.wallet.signTransaction`
+- **Related Recipes**:
+  - [Key rotation and multi-account security](recipes/08-key-rotation.md)
+  - [Account recovery patterns](recipes/10-account-recovery.md)
 
-3. **Endpoint Failover & Health Monitoring (`EndpointPool`, `configureEndpointFailover`)**:
-   - **Ownership**: The application or caller owns the failover configuration.
-   - **Lifecycle**: If `pool.startHealthMonitoring()` is invoked, it starts a periodic timer. Call the returned unregister function or `pool.stopHealthMonitoring()` to terminate the timer. For testing or global resets, invoke `resetEndpointPools()`.
+### 2. Check Balances, Accounts, and Trustlines
+- **Client Entrypoint**: `client.account`
+- **Operations**: `client.account.get`, `client.account.getBalances`, `client.account.stream`
+- **Related Recipes**:
+  - [Trustline management and asset balances](recipes/11-trustline-management.md)
+  - [Real-time balance alerts and streaming](recipes/13-balance-alerts-streaming.md)
 
-4. **Subscriptions & Feeds (`subscribePrices`, `createWebSocketTransactionFeed`, `streamTransactionStatus`)**:
-   - **Ownership**: The caller owns the active subscription or WebSocket feed.
-   - **Lifecycle**: Methods return handles with `unsubscribe()`, `close()`, or `stop()`. Callers must invoke these during teardown (e.g. React `useEffect` cleanup or Vue `onUnmounted`) to avoid memory or socket leaks.
+### 3. Build, Estimate Fees, and Submit Transactions
+- **Client Entrypoint**: `client.transaction`
+- **Key Functions**: {@link buildPaymentTransaction}, {@link submitTransaction}, {@link estimateFee}
+- **Operations**: `client.transaction.buildPayment`, `client.transaction.submit`, `client.transaction.estimateFee`
+- **Related Recipes**:
+  - [Fee estimation and surge pricing](recipes/15-fee-estimation.md)
+  - [Batch payments and multi-operation envelopes](recipes/05-batch-payment.md)
+  - [Payments with structured memos](recipes/09-payment-with-memo.md)
+  - [Multi-signature approval workflows](recipes/01-multisig-approval.md)
 
-Use the search box or navigation to find functions, interfaces, and examples.
+### 4. Read, Simulate, and Invoke Soroban Contracts
+- **Client Entrypoint**: `client.soroban`
+- **Key Functions**: {@link readContract}, {@link simulateContractSafe}, {@link invokeContract}, {@link buildContractDeploy}
+- **Operations**: `client.soroban.read`, `client.soroban.simulate`, `client.soroban.invoke`
+- **Related Recipes**:
+  - [Soroban contract invocation and parameter encoding](recipes/04-soroban-invoke.md)
+  - [Contract deployment with preflight validation](recipes/14-contract-deployment.md)
+  - [NFT minting on Soroban](recipes/20-nft-minting.md)
+
+### 5. DEX Swaps, Offers, and Path Payments
+- **Client Entrypoint**: `client.transaction`
+- **Operations**: `client.transaction.buildPathPayment`
+- **Related Recipes**:
+  - [DEX atomic swaps](recipes/03-dex-atomic-swap.md)
+  - [Offer management and limit orders](recipes/07-offer-management.md)
+  - [Path payments and liquidity routing](recipes/12-path-payment.md)
+  - [Smart order DEX routing](recipes/19-dex-routing.md)
+
+### 6. Configure Networks and Endpoints
+- **Client Entrypoint**: `client.network`
+- **Key Functions**: {@link resolveNetwork}, {@link NETWORK_DEFAULTS}
+- **Operations**: `client.network.getConfig`, `client.network.setNetwork`
+- **Related Documentation**:
+  - [Architecture and boundary rules](architecture.md)
+  - [End-to-end task workflows](workflows.md)
+
+---
+
+## Guides and Documentation
 
 - [Getting started and SDK usage](https://github.com/TochukwuJustice/core#readme)
-- [Task-oriented workflows](https://github.com/TochukwuJustice/core/blob/main/docs/workflows.md)
-- [Architecture guide](https://github.com/TochukwuJustice/core/blob/main/docs/architecture.md)
-- [Multi-endpoint failover & graceful degradation](https://github.com/TochukwuJustice/core/blob/main/docs/recipes/21-multi-endpoint-failover.md)
+- [Task-oriented workflows](workflows.md)
+- [Architecture guide](architecture.md)
+- [Recipes and Cookbook index](recipes/README.md)
 
 To regenerate this reference locally, run `npm ci --legacy-peer-deps` and
 `npm run docs`, then open `docs/api/index.html`. Generated files are not committed.

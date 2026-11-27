@@ -1,5 +1,6 @@
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+import type { EndpointRegistry, EndpointType } from "./endpointRegistry";
 
 export interface EndpointHealth {
   endpoint: string;
@@ -17,6 +18,16 @@ export interface EndpointFailoverOptions {
   recoveryIntervalMs?: number;
   /** Health probe interval used by startHealthMonitoring. */
   healthCheckIntervalMs?: number;
+  /**
+   * Optional EndpointRegistry reference (#147). When provided, `current`
+   * uses score-based weighted selection instead of cursor rotation.
+   */
+  registryRef?: EndpointRegistry | undefined;
+  /**
+   * Endpoint type used when querying the registryRef (#147).
+   * @default "horizon"
+   */
+  registryType?: EndpointType | undefined;
 }
 
 export interface EndpointHealthCheckResult {
@@ -42,12 +53,18 @@ function isRetryableStatus(status: number): boolean {
  * Ordered endpoint pool. The first configured endpoint is the primary; healthy
  * backups are selected in order and unhealthy endpoints are periodically
  * retried so recovery is automatic.
+ *
+ * When constructed with `options.registryRef` (#147) the `current` getter
+ * delegates to score-based weighted selection via the registry instead of
+ * cursor rotation.
  */
 export class EndpointPool {
   readonly endpoints: readonly string[];
   private readonly states = new Map<string, EndpointHealth>();
   private readonly failureThreshold: number;
   private readonly recoveryIntervalMs: number;
+  private readonly registryRef: EndpointRegistry | undefined;
+  private readonly registryType: EndpointType;
   private monitor: ReturnType<typeof setInterval> | undefined;
   private cursor = 0;
 
@@ -57,6 +74,8 @@ export class EndpointPool {
     this.endpoints = Object.freeze(unique);
     this.failureThreshold = Math.max(1, options.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD);
     this.recoveryIntervalMs = Math.max(0, options.recoveryIntervalMs ?? DEFAULT_RECOVERY_INTERVAL_MS);
+    this.registryRef = options.registryRef;
+    this.registryType = options.registryType ?? "horizon";
     for (const endpoint of this.endpoints) {
       this.states.set(endpoint, { endpoint, healthy: true, consecutiveFailures: 0 });
     }
@@ -65,6 +84,12 @@ export class EndpointPool {
   get primary(): string { return this.endpoints[0]!; }
 
   get current(): string {
+    // If a registry is wired in, prefer score-based weighted selection (#147).
+    if (this.registryRef) {
+      const result = selectByScore(this.registryRef, this.registryType);
+      if (result !== null) return result;
+    }
+
     const now = Date.now();
     for (let offset = 0; offset < this.endpoints.length; offset += 1) {
       const endpoint = this.endpoints[(this.cursor + offset) % this.endpoints.length]!;
@@ -141,6 +166,38 @@ export class EndpointPool {
 }
 
 const pools = new Map<string, EndpointPool>();
+
+/**
+ * Weighted random selection from a registry by health score (#147).
+ *
+ * Endpoints with higher composite scores are proportionally more likely to be
+ * chosen. A tiny randomisation jitter prevents thundering-herd selection of the
+ * same endpoint when multiple callers run concurrently.
+ *
+ * Returns `null` when the registry has no registered endpoints of the given type.
+ */
+export function selectByScore(
+  registry: EndpointRegistry,
+  type: EndpointType,
+): string | null {
+  const scores = registry.getHealthScores(type);
+  if (scores.length === 0) return null;
+
+  const totalWeight = scores.reduce((sum, s) => sum + s.healthScore.score, 0);
+
+  // Fall back to uniform selection when all scores are zero (e.g. all OPEN).
+  if (totalWeight <= 0) {
+    return scores[Math.floor(Math.random() * scores.length)]!.url;
+  }
+
+  let pick = Math.random() * totalWeight;
+  for (const s of scores) {
+    pick -= s.healthScore.score;
+    if (pick <= 0) return s.url;
+  }
+  // Numerical guard: return last entry
+  return scores[scores.length - 1]!.url;
+}
 
 export function configureEndpointFailover(primary: string, backups: string[] = [], options?: EndpointFailoverOptions): EndpointPool {
   const pool = new EndpointPool([primary, ...backups], options);

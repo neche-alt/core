@@ -20,8 +20,7 @@ import type { ResolvedNetworkConfig } from "../shared/types";
 import type { PreparedContractCall } from "./types";
 import { createHorizonServer, createSorobanServer } from "../shared/serverFactory";
 import { validateDeployConfig } from "./validateDeployConfig";
-
-const MAX_WASM_SIZE = 256 * 1024; // 256 KB
+import { validateContractWasm } from "./validateContractWasm";
 
 export interface BuildContractDeployOptions {
   rpcUrl: string;
@@ -62,36 +61,13 @@ export async function buildContractDeploy(
   });
   if (configResult.status === "error") return configResult;
 
-  // Validate WASM presence — callers without type checking can reach here with
-  // an unread or empty file buffer.
-  if (!Buffer.isBuffer(contractCode) || contractCode.length === 0) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      "Contract WASM is missing or empty. Pass the compiled .wasm file contents as a Buffer (e.g. fs.readFileSync(wasmPath))."
-    );
-  }
-
-  // Validate WASM size
-  if (contractCode.length > MAX_WASM_SIZE) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      `WASM code exceeds max size of ${MAX_WASM_SIZE} bytes`
-    );
-  }
-
-  // Validate WASM magic number (0x00, 0x61, 0x73, 0x6d)
-  if (
-    contractCode.length < 4 ||
-    contractCode[0] !== 0x00 ||
-    contractCode[1] !== 0x61 ||
-    contractCode[2] !== 0x73 ||
-    contractCode[3] !== 0x6d
-  ) {
-    return err(
-      SorokitErrorCode.TX_BUILD_FAILED,
-      "Invalid WASM format: missing magic bytes"
-    );
-  }
+  // Validate WASM structure locally — a missing, oversized, or malformed
+  // module fails here with an actionable error instead of after an upload
+  // attempt reaches the network (#44). This covers the magic + version
+  // headers and a structural walk of the section table (truncation, unknown
+  // section ids, sections that overflow the buffer, and duplicate sections).
+  const wasmResult = validateContractWasm(contractCode);
+  if (wasmResult.status === "error") return wasmResult;
 
   try {
     const rpc = createSorobanServer(options.rpcUrl);
