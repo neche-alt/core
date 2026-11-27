@@ -36,11 +36,13 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 
 ## Table of Contents
 
+- [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Supported Imports](#supported-imports)
 - [Modules](#modules)
 - [API Reference](#api-reference)
-  - [wallet](#wallet)
+- [wallet](#wallet)
   - [account](#account)
   - [transaction](#transaction)
   - [soroban](#soroban)
@@ -61,55 +63,95 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 
 ---
 
+## Prerequisites
+
+- **Node.js**: `^18.0.0 || ^20.0.0 || ^22.0.0`
+- **TypeScript**: `^5.0.0` (recommended)
+- **Stellar Account**: Keypair on Stellar Testnet or Mainnet
+- **Browser Extension (optional)**: [Freighter](https://www.freighter.app/) for interactive browser signing
+
+---
+
 ## Installation
 
 ```bash
-npm install sorokit-core @creit.tech/stellar-wallets-kit
+# Core SDK and Stellar SDK
+npm install sorokit-core @stellar/stellar-sdk
+
+# If using browser wallet adapters via StellarWalletsKit:
+npm install @creit.tech/stellar-wallets-kit
 ```
 
-`@creit.tech/stellar-wallets-kit` is a required peer dependency. It provides the underlying wallet adapter infrastructure that `sorokit-core` builds on.
+---
+
+## Supported Imports
+
+`sorokit-core` provides both a root entrypoint and focused subpath imports:
+
+```ts
+// Root entrypoint
+import {
+  createSorokitClient,
+  FreighterAdapter,
+  WalletType,
+  ok,
+  err,
+  SorokitErrorCode,
+} from "sorokit-core";
+
+// Modular subpaths
+import { FreighterAdapter, WalletType } from "sorokit-core/wallet";
+import { readContract, simulateTransaction } from "sorokit-core/soroban";
+import { resolveNetwork, NETWORK_DEFAULTS } from "sorokit-core/network";
+import { createMockWalletAdapter, createMockClient } from "sorokit-core/testing";
+```
 
 ---
 
 ## Quick Start
 
+A complete verified guide is available in [Canonical Quickstart Guide](docs/quickstart.md).
+
 ```ts
 import { createSorokitClient, FreighterAdapter } from "sorokit-core";
+import { StellarWalletsKit, WalletNetwork, allowAllModules } from "@creit.tech/stellar-wallets-kit";
 
-// 1. Create a client
-const result = createSorokitClient({ network: "testnet" });
-if (result.status === "error") throw new Error(result.error.message);
+// 1. Initialize client for Testnet
+const clientResult = createSorokitClient({ network: "testnet" });
+if (clientResult.status === "error") throw new Error(clientResult.error.message);
+const client = clientResult.data;
 
-const client = result.data;
-
-// 2. Connect a wallet
-const adapter = new FreighterAdapter(swkInstance);
+// 2. Connect a wallet (e.g. Freighter via StellarWalletsKit)
+const swk = new StellarWalletsKit({
+  network: WalletNetwork.TESTNET,
+  selectedWalletId: "freighter",
+  modules: allowAllModules(),
+});
+const adapter = new FreighterAdapter(swk);
 const conn = await client.wallet.connect(adapter);
 if (conn.status === "error") throw new Error(conn.error.message);
 
 const { publicKey } = conn.data;
+console.log("Connected public key:", publicKey);
 
-// 3. Fetch account balances
+// 3. First Wallet Operation: Fetch balances
 const account = await client.account.get(publicKey);
 if (account.status === "ok") {
-  console.log(account.data.balances);
+  console.log("Balances:", account.data.balances);
 }
 
-// 4. Build, sign, and submit a payment
-const tx = await client.transaction.buildPayment(publicKey, {
-  destination: "GDEST...WXYZ",
-  amount: "10",
+// 4. First Contract Operation: Read-only contract call (simulation)
+const contractResult = await client.soroban.read({
+  contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  method: "balance",
+  args: [],
+  publicKey,
 });
 
-if (tx.status === "ok") {
-  const signed = await client.wallet.signTransaction(adapter, {
-    transactionXdr: tx.data,
-    networkPassphrase: client.networkConfig.networkPassphrase,
-  });
-
-  if (signed.status === "ok") {
-    await client.transaction.submit(signed.data);
-  }
+if (contractResult.status === "ok") {
+  console.log("Contract value:", contractResult.data.result);
+} else {
+  console.error("Read failed:", contractResult.error.message);
 }
 ```
 
