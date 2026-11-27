@@ -128,7 +128,7 @@ export default function App() {
         <div>
           <p>
             <strong>Connected:</strong>{" "}
-            <code style={{ wordBreak: "break-all" }}>{walletState.publicKey}</code>
+            <CopyAddress address={walletState.publicKey!} />
           </p>
           <button onClick={disconnect} disabled={loading} style={{ marginRight: 8 }}>
             Disconnect
