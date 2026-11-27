@@ -128,40 +128,38 @@ Type-check the example against the SDK source:
 npm run typecheck:examples
 ```
 
-## SDK Diagnostics Panel
+## Localization
 
-`DiagnosticsPanel` is an opt-in `[DEBUG]` section that runs `runDiagnostics` from `sorokit-core` and displays the results inline. It is intentionally distinct from the main app UI: muted colours, monospace font, dashed border, and a `[DEBUG]` label.
+All user-facing strings in this example are routed through `src/shared/i18n.ts`
+using `i18n.t("key")` calls. No raw string literals appear in rendered JSX.
 
-### What it shows
+### Adding a locale
 
-- Overall SDK status (healthy / degraded / unavailable)
-- SDK version, network, and report timestamp
-- Per-check rows: Horizon connectivity, Soroban RPC, wallet adapter, network configuration, runtime environment
-- Latency for external checks
-- Issues and recommendations per check (expand a row to see them)
-- Aggregated recommendation list
+1. Open `src/shared/i18n.ts` and add an entry for your locale alongside
+   `EN_TRANSLATIONS` and `ES_TRANSLATIONS`:
 
-### How to use it
+   ```ts
+   export const FR_TRANSLATIONS: Required<TranslationCatalog> = {
+     "ui.app.title": "sorokit-core — Portefeuille React",
+     "ui.wallet.connect_button": "Connecter Freighter",
+     // ... all ui.* keys
+   };
+   ```
 
-```tsx
-import { DiagnosticsPanel } from "./DiagnosticsPanel";
+2. Register it with `createI18n`:
 
-// Always visible (useful during local development):
-<DiagnosticsPanel show={true} network="testnet" />
+   ```ts
+   const i18n = createI18n({ locale: "fr" }).withTranslations({ fr: FR_TRANSLATIONS });
+   ```
 
-// Visible only in development builds:
-<DiagnosticsPanel show={process.env.NODE_ENV === "development"} network="testnet" />
+3. Run the extraction script to verify no key is missing:
 
-// Hidden — safe to leave in the tree:
-<DiagnosticsPanel show={false} />
-```
+   ```bash
+   node scripts/extract-i18n.mjs
+   ```
 
-Pass `walletAdapter` to include a wallet availability check:
+   The script exits with code `1` if any key used in a component is absent
+   from `EN_TRANSLATIONS`. Add the key there before proceeding.
 
-```tsx
-<DiagnosticsPanel show={true} network="testnet" walletAdapter={myAdapter} />
-```
-
-### Security
-
-The panel never renders private keys, seeds, mnemonics, or other secrets. The underlying `runDiagnostics` API is strictly read-only: it never connects a wallet, signs anything, or changes SDK state. `containsSecret` in `diagnosticsUtils.ts` provides a defence-in-depth check before any value is rendered.
+4. The generated `scripts/messages.en.json` lists every key with its English
+   default — hand this file to translators as the source catalog.

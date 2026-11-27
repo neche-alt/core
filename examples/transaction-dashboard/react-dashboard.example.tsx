@@ -5,12 +5,8 @@
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
  *
- * Error recovery (#106):
- * - Read operations (fetching the snapshot / refreshing balances) expose a
- *   safe "Retry" button — re-running them is always idempotent.
- * - Write operations (transaction submissions) show a status-check link
- *   instead of a retry button so the user confirms the transaction did not
- *   land before resubmitting, preventing accidental double-spends.
+ * User-facing strings are routed through src/shared/i18n.ts so translators
+ * and extraction tooling can discover every message key in one place.
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -19,7 +15,9 @@ import {
   type DashboardSnapshot,
 } from "../../src/transaction/transactionDashboard";
 import type { TransactionResult } from "../../src/transaction/types";
-import { TransactionTimeline } from "./transaction-timeline";
+import { createI18n } from "../../src/shared/i18n";
+
+const i18n = createI18n({ locale: "en" });
 
 export const dashboard = new TransactionStatusAggregator({ maxEntries: 1000 });
 
@@ -103,16 +101,23 @@ export function TransactionStatusDashboard({
     }
   }, [onRetryRead]);
 
+  const unavailable = i18n.t("ui.dashboard.unavailable");
+
   return (
     <section aria-label="Transaction status dashboard">
       <header>
-        <h2>Transactions ({snapshot.metrics.total})</h2>
+        <h2>
+          {i18n.t("ui.dashboard.heading")} ({snapshot.metrics.total})
+        </h2>
         <p>
-          Success rate: {(snapshot.metrics.successRate * 100).toFixed(1)}% · Avg fee:{" "}
-          {snapshot.metrics.avgFee ?? "—"} · Avg confirmation:{" "}
+          {i18n.t("ui.dashboard.success_rate")}: {(snapshot.metrics.successRate * 100).toFixed(1)}%
+          {" · "}
+          {i18n.t("ui.dashboard.avg_fee")}: {snapshot.metrics.avgFee ?? unavailable}
+          {" · "}
+          {i18n.t("ui.dashboard.avg_confirmation")}:{" "}
           {snapshot.metrics.avgProcessingTimeMs !== null
             ? `${Math.round(snapshot.metrics.avgProcessingTimeMs)}ms`
-            : "—"}
+            : unavailable}
         </p>
       </header>
 

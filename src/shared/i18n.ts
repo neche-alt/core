@@ -9,6 +9,30 @@ export type MessageKey =
   | "network.unavailable"
   | "escrow.invalid_state"
   | "escrow.timelock_expired"
+  // ── Example app UI strings (react-wallet-connect) ─────────────────────────
+  | "ui.app.title"
+  | "ui.wallet.connect_button"
+  | "ui.wallet.connecting"
+  | "ui.wallet.connected_label"
+  | "ui.wallet.disconnect_button"
+  | "ui.wallet.refresh_balances"
+  | "ui.balances.heading"
+  | "ui.balances.asset_column"
+  | "ui.balances.balance_column"
+  | "ui.payment.heading"
+  | "ui.payment.destination_label"
+  | "ui.payment.destination_placeholder"
+  | "ui.payment.amount_label"
+  | "ui.payment.amount_placeholder"
+  | "ui.payment.send_button"
+  | "ui.payment.sending"
+  | "ui.payment.connect_first"
+  // ── Example app UI strings (transaction-dashboard) ────────────────────────
+  | "ui.dashboard.heading"
+  | "ui.dashboard.success_rate"
+  | "ui.dashboard.avg_fee"
+  | "ui.dashboard.avg_confirmation"
+  | "ui.dashboard.unavailable"
   | (string & {});
 
 export type TranslationCatalog = Partial<Record<MessageKey, string>>;
@@ -38,6 +62,30 @@ export const EN_TRANSLATIONS: Required<TranslationCatalog> = {
   "network.unavailable": "The network is currently unavailable.",
   "escrow.invalid_state": "The escrow cannot perform this action in its current state.",
   "escrow.timelock_expired": "The escrow timelock has expired.",
+  // ── Example app UI strings (react-wallet-connect) ─────────────────────────
+  "ui.app.title": "sorokit-core — React wallet",
+  "ui.wallet.connect_button": "Connect Freighter",
+  "ui.wallet.connecting": "Connecting…",
+  "ui.wallet.connected_label": "Connected:",
+  "ui.wallet.disconnect_button": "Disconnect",
+  "ui.wallet.refresh_balances": "Refresh balances",
+  "ui.balances.heading": "Balances",
+  "ui.balances.asset_column": "Asset",
+  "ui.balances.balance_column": "Balance",
+  "ui.payment.heading": "Send XLM",
+  "ui.payment.destination_label": "Destination",
+  "ui.payment.destination_placeholder": "G...",
+  "ui.payment.amount_label": "Amount (XLM)",
+  "ui.payment.amount_placeholder": "10",
+  "ui.payment.send_button": "Send",
+  "ui.payment.sending": "Sending…",
+  "ui.payment.connect_first": "Connect a wallet first",
+  // ── Example app UI strings (transaction-dashboard) ────────────────────────
+  "ui.dashboard.heading": "Transactions",
+  "ui.dashboard.success_rate": "Success rate",
+  "ui.dashboard.avg_fee": "Avg fee",
+  "ui.dashboard.avg_confirmation": "Avg confirmation",
+  "ui.dashboard.unavailable": "—",
 };
 
 export const ES_TRANSLATIONS: Required<TranslationCatalog> = {
@@ -49,6 +97,30 @@ export const ES_TRANSLATIONS: Required<TranslationCatalog> = {
   "network.unavailable": "La red no está disponible actualmente.",
   "escrow.invalid_state": "El depósito no puede realizar esta acción en su estado actual.",
   "escrow.timelock_expired": "El bloqueo temporal del depósito ha expirado.",
+  // ── Example app UI strings (react-wallet-connect) ─────────────────────────
+  "ui.app.title": "sorokit-core — Cartera React",
+  "ui.wallet.connect_button": "Conectar Freighter",
+  "ui.wallet.connecting": "Conectando…",
+  "ui.wallet.connected_label": "Conectado:",
+  "ui.wallet.disconnect_button": "Desconectar",
+  "ui.wallet.refresh_balances": "Actualizar saldos",
+  "ui.balances.heading": "Saldos",
+  "ui.balances.asset_column": "Activo",
+  "ui.balances.balance_column": "Saldo",
+  "ui.payment.heading": "Enviar XLM",
+  "ui.payment.destination_label": "Destino",
+  "ui.payment.destination_placeholder": "G...",
+  "ui.payment.amount_label": "Cantidad (XLM)",
+  "ui.payment.amount_placeholder": "10",
+  "ui.payment.send_button": "Enviar",
+  "ui.payment.sending": "Enviando…",
+  "ui.payment.connect_first": "Primero conecta una cartera",
+  // ── Example app UI strings (transaction-dashboard) ────────────────────────
+  "ui.dashboard.heading": "Transacciones",
+  "ui.dashboard.success_rate": "Tasa de éxito",
+  "ui.dashboard.avg_fee": "Comisión media",
+  "ui.dashboard.avg_confirmation": "Confirmación media",
+  "ui.dashboard.unavailable": "—",
 };
 
 const BUILTIN_TRANSLATIONS: TranslationMap = { en: EN_TRANSLATIONS, es: ES_TRANSLATIONS };

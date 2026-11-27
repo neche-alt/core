@@ -1,0 +1,23 @@
+{
+  "ui.app.title": "sorokit-core — Cartera React",
+  "ui.balances.asset_column": "Activo",
+  "ui.balances.balance_column": "Saldo",
+  "ui.balances.heading": "Saldos",
+  "ui.dashboard.avg_confirmation": "Confirmación media",
+  "ui.dashboard.avg_fee": "Comisión media",
+  "ui.dashboard.heading": "Transacciones",
+  "ui.dashboard.success_rate": "Tasa de éxito",
+  "ui.dashboard.unavailable": "—",
+  "ui.payment.amount_label": "Cantidad (XLM)",
+  "ui.payment.amount_placeholder": "10",
+  "ui.payment.destination_label": "Destino",
+  "ui.payment.destination_placeholder": "G...",
+  "ui.payment.heading": "Enviar XLM",
+  "ui.payment.send_button": "Enviar",
+  "ui.payment.sending": "Enviando…",
+  "ui.wallet.connect_button": "Conectar Freighter",
+  "ui.wallet.connected_label": "Conectado:",
+  "ui.wallet.connecting": "Conectando…",
+  "ui.wallet.disconnect_button": "Desconectar",
+  "ui.wallet.refresh_balances": "Actualizar saldos"
+}
