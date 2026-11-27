@@ -568,30 +568,64 @@ Pass the adapter to `client.wallet.connect()` and `client.wallet.signTransaction
 
 ## Network Management
 
-The SDK now includes circuit breaker and dynamic network switching:
+The SDK includes a circuit breaker, endpoint failover, and dynamic network switching.
+
+### Circuit breaker
+
+`CircuitBreaker` and `CircuitBreakerRegistry` wrap individual RPC calls and enforce a fail-fast ceiling once an endpoint accumulates consecutive transient failures (5xx, timeout, or network error). Permanent errors (404, bad params) pass through without tripping the circuit.
 
 ```ts
-// Circuit breaker for resilience (automatic)
-const client = createSorokitClient({
-  network: "testnet",
-  enableCircuitBreaker: true, // Retries failed requests intelligently
+import { CircuitBreaker, CircuitBreakerRegistry } from "sorokit-core";
+
+// Per-endpoint breaker (create one instance, reuse across calls)
+const cb = new CircuitBreaker("https://soroban-testnet.stellar.org", {
+  failureThreshold: 5,       // trip after 5 consecutive transient failures
+  recoveryWindowMs: 60_000,  // wait 60 s before allowing a probe request
+  onStateChange: (evt) => console.log(evt.from, "→", evt.to),
 });
 
-// Dynamic network switching (new)
-client.network.switchNetwork("mainnet"); // Switch at runtime
+const result = await cb.call(() => rpc.simulateTransaction(tx));
 
-// Network resolution (new)
+// Registry — shared breaker per endpoint, no manual wiring needed
+const registry = new CircuitBreakerRegistry({ failureThreshold: 5 });
+await registry.call(rpcUrl, () => rpc.simulateTransaction(tx));
+```
+
+**State machine:** `CLOSED` (normal) → `OPEN` (fail-fast) → `HALF_OPEN` (probe) → `CLOSED` (recovered) or back to `OPEN` (probe failed).
+
+Call `cb.reset()` or `registry.resetAll()` to restore `CLOSED` state manually — useful between tests.
+
+### Endpoint failover
+
+`EndpointPool` manages an ordered list of RPC endpoints. `createFailoverFetch` wraps `fetch` so that retryable responses (408, 425, 429, 5xx) and network errors automatically retry against the next healthy endpoint. The retry ceiling equals the number of configured endpoints — a failed write operation is never retried more times than there are endpoints.
+
+```ts
+import { EndpointPool, createFailoverFetch, configureEndpointFailover } from "sorokit-core";
+
+const pool = configureEndpointFailover(
+  "https://primary-rpc.example.com",
+  ["https://backup-rpc.example.com"],
+  { failureThreshold: 2, recoveryIntervalMs: 30_000 },
+);
+
+const fetchWithFailover = createFailoverFetch(pool);
+// Use fetchWithFailover anywhere you would pass a custom fetch to the Stellar SDK.
+```
+
+Health is tracked per-endpoint: `pool.markSuccess()` / `pool.markFailure()` update the state, and `pool.getHealth()` returns a snapshot. `pool.check()` performs active probes and `pool.startHealthMonitoring()` runs them on a periodic interval — call the returned teardown function to stop.
+
+### Dynamic network switching
+
+```ts
+// Switch at runtime — no client recreation needed
+client.network.switchNetwork("mainnet");
+
+// Programmatic endpoint resolution
 const resolved = await client.network.resolveNetwork("testnet");
 if (resolved.status === "ok") {
   console.log(resolved.data.horizonUrl, resolved.data.rpcUrl);
 }
 ```
-
-**Features:**
-
-- `circuitBreaker` - Automatic retry logic with exponential backoff
-- `networkSwitcher` - Switch between networks without recreating client
-- `resolveNetwork` - Programmatic network endpoint resolution
 
 ---
 
