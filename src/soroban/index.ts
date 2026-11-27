@@ -50,6 +50,21 @@ export type {
   SimulateContractSafeOptions,
   SafeSimulationResult,
 } from "./simulateContractSafe";
+export {
+  summarizeSimulationDiagnostics,
+  SIMULATION_RESOURCE_FIELDS,
+  SIMULATION_FEE_FIELDS,
+  SIMULATION_DIAGNOSTIC_FIELDS,
+} from "./simulationDiagnostics";
+export type {
+  SimulationDiagnostics,
+  SimulationResourceDiagnostics,
+  SimulationFeeDiagnostics,
+  SimulationDiagnosticsCompleteness,
+  SimulationDiagnosticField,
+  SimulationResourceField,
+  SimulationFeeField,
+} from "./simulationDiagnostics";
 export { executeContract } from "./executeContract";
 export { invokeContract } from "./invokeContract";
 export type { InvokeContractOptions } from "./invokeContract";

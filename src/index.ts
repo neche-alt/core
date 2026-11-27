@@ -1113,6 +1113,21 @@ export type {
   ExtractResourceUsageOptions,
   ResourceUsageValidationResult,
 } from "./soroban/simulateTransaction";
+export {
+  summarizeSimulationDiagnostics,
+  SIMULATION_RESOURCE_FIELDS,
+  SIMULATION_FEE_FIELDS,
+  SIMULATION_DIAGNOSTIC_FIELDS,
+} from "./soroban/simulationDiagnostics";
+export type {
+  SimulationDiagnostics,
+  SimulationResourceDiagnostics,
+  SimulationFeeDiagnostics,
+  SimulationDiagnosticsCompleteness,
+  SimulationDiagnosticField,
+  SimulationResourceField,
+  SimulationFeeField,
+} from "./soroban/simulationDiagnostics";
 export { getNftMetadata, clearNftMetadataCache } from "./soroban/nftMetadata";
 export type { NftMetadata, NftMetadataOptions } from "./soroban/nftMetadata";
 export {
