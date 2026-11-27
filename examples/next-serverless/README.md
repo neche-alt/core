@@ -83,6 +83,53 @@ STELLAR_NETWORK=testnet
 variable and never expose it to the browser. The API routes in this example are
 server-only (`pages/api/`) and Next.js never bundles them into the client.
 
+## Cold-start patterns
+
+Serverless containers pay a one-time initialisation cost on the first request after deployment or after the container goes idle. The `coldStart.ts` module provides three helpers that reduce this overhead.
+
+**Lazy singleton client** — `lazyGetClient()` creates the `SorokitClient` once per container lifetime and reuses it on every warm invocation. This is safe because the client holds no open connections, only configuration.
+
+```ts
+import { lazyGetClient } from "./coldStart";
+
+// First call in the container: creates the client (~cold start).
+// Every subsequent call in the same container: returns the cached instance.
+const client = lazyGetClient();
+```
+
+**Per-request deadline** — `withDeadline(ms)` wraps `AbortController` with a `setTimeout`. Pass the signal to any SDK call that accepts one. Always call `cancel()` in a `finally` block to release the timer.
+
+```ts
+import { withDeadline } from "./coldStart";
+
+const { signal, cancel } = withDeadline(8_000); // 8 s budget
+try {
+  const result = await client.account.getAccountsBatch(keys, { signal });
+  return result;
+} finally {
+  cancel();
+}
+```
+
+**Bounded concurrency** — Pass `concurrency` to `getAccountsBatch` to cap simultaneous upstream requests and avoid triggering rate limits.
+
+```ts
+import { lazyGetClient } from "./coldStart";
+
+const client = lazyGetClient();
+// At most 3 Horizon requests in-flight at any time.
+const result = await client.account.getAccountsBatch(keys, { concurrency: 3 });
+```
+
+**Graceful shutdown** — call `registerShutdown()` once at startup to reset the singleton on `SIGTERM`.
+
+```ts
+import { registerShutdown } from "./coldStart";
+registerShutdown();
+```
+
+The full drop-in example lives in `src/coldStart.ts`. The corresponding test coverage is in `src/tests/coldStart.test.ts`.
+
 ## Running type-checks
 
 ```bash
