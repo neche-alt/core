@@ -56,6 +56,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Video Tutorials](#video-tutorials)
 - [New in This Release](#new-in-this-release)
 - [Design Principles](#design-principles)
+- [Release Automation](#release-automation)
 - [License](#license)
 
 ---
@@ -829,6 +830,19 @@ Both guides use the current exported API shape and keep policy, construction, si
 | 10 | [Error Handling Patterns & Recovery](docs/videos.md#tutorial-10--error-handling-patterns--recovery-2-min)            | 2 min  |
 
 See [`docs/videos.md`](docs/videos.md) for recorded video links once they're published, and for the full production recording checklist and YouTube hosting guide.
+
+---
+
+## Release Automation
+
+Two scripts help maintain consistent release metadata and catch problems before cutting a release.
+
+| Script | npm command | Purpose |
+|---|---|---|
+| `scripts/check-release-metadata.mjs` | `npm run check:release-metadata` | Audits release branches and tags for version drift |
+| `scripts/pre-release-check.mjs` | `npm run pre-release:check` | Validates version/tag, changelog, dist, and exports before tagging |
+
+See [docs/release-automation.md](docs/release-automation.md) for the full check list and maintainer actions.
 
 ---
 
