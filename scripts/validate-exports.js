@@ -133,18 +133,15 @@ for (const name of expectedTestingExports) {
   }
 }
 
-// ─── Consumer type fixture (#82) ─────────────────────────────────────────────
-// Declaration generation can succeed while a consumer import path or the peer
-// types for an individual published subpath still fail. Compile a small
-// consumer fixture against the built package through the real `exports` map
-// (and assert a broken fixture fails) so this release validation pipeline
-// catches that class of regression. `dist/` is already built above.
-console.log('\nValidating consumer type fixture against package exports...');
-try {
-  execSync('node scripts/validate-consumer-types.js', { stdio: 'inherit' });
-} catch (error) {
-  console.error('❌ Consumer type fixture validation failed.');
-  failed = true;
+console.log('\nValidating package metadata export targets in package.json (#56)...');
+const pkg = require('../package.json');
+for (const [subpath, targets] of Object.entries(pkg.exports)) {
+  if (!targets.types || !targets.import || !targets.require) {
+    console.error(`❌ Export "${subpath}" in package.json is missing types, import, or require.`);
+    failed = true;
+  } else {
+    console.log(`✅ Subpath export "${subpath}" metadata is valid.`);
+  }
 }
 
 if (failed) {

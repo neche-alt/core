@@ -42,6 +42,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Quick Start](#quick-start)
 - [Supported Imports](#supported-imports)
 - [Modules](#modules)
+- [Package Exports and Stability](#package-exports-and-stability)
 - [API Reference](#api-reference)
 - [wallet](#wallet)
   - [account](#account)
@@ -175,14 +176,24 @@ if (contractResult.status === "ok") {
 
 ---
 
-## Client Resource Ownership & Lifecycle
+## Package Exports and Stability
 
-Applications need clear boundaries on whether shared clients own connections, timers, or background subscriptions so they can reuse and close them cleanly:
+`sorokit-core` exposes documented entrypoints with defined semantic stability expectations:
 
-- **`createSorokitClient` (Stateless Client)**: `SorokitClient` does not own persistent background connections, open sockets, or unmanaged timers. It can be safely reused as a singleton across your application or instantiated per-request in serverless handlers without leaking memory or handles.
-- **`ConnectionPool` (HTTP Connections)**: Owns idle keep-alive timers and queued requests. When you configure a custom pool via `setConnectionPool(pool)`, call `pool.close()` when shutting down or tearing down your application.
-- **`EndpointPool` (Failover & Health Checks)**: Background health monitoring initiated by `pool.startHealthMonitoring()` creates an active timer. Call the returned cleanup function or `pool.stopHealthMonitoring()` to clear the timer. In test suites, call `resetEndpointPools()` or `resetServerFactory()` to reset global state.
-- **Subscriptions & Feeds**: Event streams and WebSocket subscriptions (such as `subscribePrices`, `createWebSocketTransactionFeed`, or `streamTransactionStatus`) return explicit handles (`unsubscribe()`, `close()`, or `stop()`). Consumers own their lifecycle and should invoke teardown upon component unmount or task completion.
+| Subpath | Tier | Scope |
+| :--- | :--- | :--- |
+| `sorokit-core` (`.`) | **Stable** | Root client, common wallet adapters, result helpers, and core error codes. |
+| `sorokit-core/wallet` | **Stable** | Wallet adapters, connection lifecycle, and transaction signing. |
+| `sorokit-core/account` | **Stable** | Account loading, balances, sequence management, and balance streaming. |
+| `sorokit-core/transaction` | **Stable** | Transaction building, fee estimation, and ledger submission. |
+| `sorokit-core/soroban` | **Stable** | Smart contract invocation, read-only view calls, simulation, and event decoding. |
+| `sorokit-core/network` | **Stable** | Network configuration, passphrase constants, and network resolution. |
+| `sorokit-core/shared` | **Stable** | Address validation, amount formatting, stroop conversion, and mainnet safety limits. |
+| `sorokit-core/testing` | **Testing** | Mock clients (`createMockClient`) and mock wallet adapters (`createMockWalletAdapter`). |
+| `sorokit-core/compliance` | **Stable** | Audit trail recording and compliance report generation. |
+| `sorokit-core/utility` | **Stable** | Standalone address/amount validation and rate limiter utilities. |
+
+Every pull request runs automated export validation (`npm run validate:exports`) to prevent missing symbols or unvetted internal leaks. See the complete [Public Package Export Stability Guide](docs/exports-stability.md) for SemVer policies and deprecation lifecycles.
 
 ---
 
