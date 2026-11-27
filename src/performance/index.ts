@@ -21,6 +21,7 @@ export {
   validateTelemetryConfig,
   resolveOpenTelemetryConfig,
   DatadogHttpTelemetryExporter,
+  recordEndpointHealthScore,
 } from "./telemetry";
 export type {
   TelemetryConfig,
