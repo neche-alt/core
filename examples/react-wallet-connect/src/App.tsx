@@ -5,6 +5,8 @@
  * transaction is built — a confirmation summary the user must review before
  * the wallet prompt opens (#105).
  *
+ * Renders connect/disconnect, network identity badge, a balance list, and a
+ * payment form. Mainnet actions require explicit confirmation.
  * All sorokit-core calls are in useSorokit.ts — this file only reads state
  * and calls the callbacks the hook exposes.
  *
@@ -21,7 +23,11 @@ import {
 } from "@creit.tech/stellar-wallets-kit";
 import { createI18n } from "../../../src/shared/i18n";
 import { useSorokit } from "./useSorokit";
-import { TransactionConfirmationSummary } from "./TransactionConfirmationSummary";
+import { NetworkBadge, MainnetConfirmDialog, useMainnetGuard } from "./NetworkBadge";
+import type { NetworkType } from "../../../src/network/config";
+
+// Active network — change to "mainnet" to see the mainnet confirmation guard.
+const ACTIVE_NETWORK: NetworkType = "testnet";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 const kit = new StellarWalletsKit({
@@ -62,85 +68,31 @@ export default function App() {
     disconnect,
     refreshBalances,
     sendPayment,
-    confirmPayment,
-    cancelPayment,
-  } = useSorokit(kit, "testnet");
+  } = useSorokit(kit, ACTIVE_NETWORK);
 
   const [destination, setDestination] = useState("");
   const [amount, setAmount] = useState("");
 
-  // Track OS/browser preference changes so the UI adapts without a reload.
-  const [reducedMotion, setReducedMotion] = useState(prefersReducedMotion);
-  const [highContrast, setHighContrast] = useState(prefersHighContrast);
-
-  useEffect(() => {
-    const motionMq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const contrastMq = window.matchMedia("(prefers-contrast: more)");
-    const onMotion = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
-    const onContrast = (e: MediaQueryListEvent) => setHighContrast(e.matches);
-    motionMq.addEventListener("change", onMotion);
-    contrastMq.addEventListener("change", onContrast);
-    return () => {
-      motionMq.removeEventListener("change", onMotion);
-      contrastMq.removeEventListener("change", onContrast);
-    };
-  }, []);
+  // Mainnet guard — no-op on testnet/futurenet, requires confirmation on mainnet
+  const guard = useMainnetGuard(ACTIVE_NETWORK);
 
   const isConnected = walletState?.connected && walletState.publicKey;
 
-  function handleSend(e: React.FormEvent) {
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
+    // Gate mainnet sends behind an explicit confirmation prompt
+    const confirmed = await guard.requestConfirmation();
+    if (!confirmed) return;
     sendPayment({ destination, amount });
   }
 
   return (
     <div style={{ maxWidth: 480, margin: "2rem auto", fontFamily: "system-ui, sans-serif" }}>
-      <h1>{i18n.t("ui.app.title")}</h1>
-
-      {/* Reconnect consent prompt — shown when a reload detects a saved session */}
-      {pendingReconnect && (
-        <div
-          style={{
-            border: "1px solid #d1a800",
-            background: "#fefce8",
-            padding: "1rem",
-            borderRadius: 8,
-            marginBottom: "1rem",
-          }}
-        >
-          <p style={{ margin: "0 0 0.5rem", fontWeight: 600 }}>
-            Reconnect saved session?
-          </p>
-          <p style={{ margin: "0 0 0.25rem", fontSize: "0.9em" }}>
-            Account:{" "}
-            <code style={{ wordBreak: "break-all" }}>
-              {pendingReconnect.publicKey}
-            </code>
-          </p>
-          {pendingReconnect.walletType && (
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.9em" }}>
-              Wallet: <strong>{pendingReconnect.walletType}</strong>
-            </p>
-          )}
-          <p style={{ margin: "0 0 0.5rem", fontSize: "0.9em" }}>
-            Device trust:{" "}
-            <strong>{pendingReconnect.trustEvaluation.reason}</strong> (score{" "}
-            {pendingReconnect.trustEvaluation.score}/100
-            {pendingReconnect.trustEvaluation.securityFlag
-              ? " ⚠ unusual device"
-              : ""}
-            )
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={approveReconnect} disabled={loading}>
-              Reconnect
-            </button>
-            <button onClick={rejectReconnect} disabled={loading}>
-              Not now
-            </button>
-          </div>
-        </div>
-      )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+        <h1 style={{ margin: 0 }}>sorokit-core — React wallet</h1>
+        {/* Network identity badge — always visible, updates on network switch */}
+        <NetworkBadge network={ACTIVE_NETWORK} />
+      </div>
 
       {/* Connection */}
       {!isConnected ? (
@@ -231,9 +183,18 @@ export default function App() {
               />
             </label>
           </div>
-          <button type="submit" disabled={loading}>
-            {loading ? "Building transaction…" : "Review & send"}
+          <button type="submit" disabled={loading || guard.isPending}>
+            {loading ? "Sending…" : "Send"}
           </button>
+
+          {/* Mainnet confirmation dialog — renders inline when guard.isPending */}
+          {guard.isPending && (
+            <MainnetConfirmDialog
+              actionDescription={`Send ${amount} XLM to ${destination || "…"}`}
+              onConfirm={guard.confirm}
+              onCancel={guard.cancel}
+            />
+          )}
         </form>
       )}
 

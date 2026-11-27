@@ -19,61 +19,59 @@ Connect wallet → Fetch balances → Build payment → Review summary → Confi
 - **Showing a confirmation summary before the wallet prompt opens** (#105)
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
-- Distinguishing user rejection from transport or contract failure
-
-## Handling wallet rejection
-
-When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
-
-| Error code | Displayed message |
-|---|---|
-| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
-| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
-| Any other failure | Original SDK error message |
-
-The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
+- **Network identity badge** (`NetworkBadge`) showing network name and testnet/mainnet distinction
+- **Mainnet confirmation guard** (`useMainnetGuard` + `MainnetConfirmDialog`) for risky mainnet actions
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment flow |
-| `src/App.tsx` | UI: connect button, balance list, payment form, confirmation summary |
-| `src/TransactionConfirmationSummary.tsx` | Reusable summary panel shown before signing |
+| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
+| `src/App.tsx` | UI: network badge, connect button, balance list, payment form |
+| `src/NetworkBadge.tsx` | Network identity badge, mainnet guard hook, confirmation dialog |
 
-## Confirmation summary (#105)
+## NetworkBadge component
 
-A demo should teach integrators to show users what they are approving before
-the wallet extension opens. This example enforces a two-step flow:
-
-1. The user fills in the payment form and clicks **Review & send**.
-2. `useSorokit` builds the transaction XDR and fetches a fee estimate (if
-   available), then sets `pendingSummary` — it does **not** open the wallet.
-3. `App.tsx` renders `TransactionConfirmationSummary`, which displays:
-   - Network (e.g. `testnet`)
-   - Destination address
-   - Operation summary (e.g. "Send 10 XLM to GDEST000…")
-   - Asset
-   - Amount
-   - Estimated fee in stroops (labelled "—" when unavailable)
-4. The user clicks **Confirm & open wallet** → `confirmPayment()` is called →
-   the wallet extension opens for signing → the transaction is submitted.
-5. If the user clicks **Cancel** → `cancelPayment()` discards the pending XDR
-   without opening the wallet extension.
+`NetworkBadge` always displays the active network name alongside a recognisable
+testnet/mainnet distinction. It updates immediately when the `network` prop changes.
 
 ```tsx
-// In your own component:
-{pendingSummary && (
-  <TransactionConfirmationSummary
-    summary={pendingSummary}
-    onConfirm={confirmPayment}
-    onCancel={cancelPayment}
+import { NetworkBadge } from "./NetworkBadge";
+import type { NetworkType } from "sorokit-core/network";
+
+<NetworkBadge network="testnet" />
+// → "Testnet — Test network — no real assets"
+
+<NetworkBadge network="mainnet" />
+// → "Mainnet — Real assets — transactions are irreversible" (amber warning style)
+```
+
+## Mainnet confirmation guard
+
+`useMainnetGuard` gates any action that moves real assets behind an explicit
+user confirmation. On testnet and futurenet it resolves immediately without
+showing any prompt.
+
+```tsx
+import { useMainnetGuard, MainnetConfirmDialog } from "./NetworkBadge";
+
+const guard = useMainnetGuard(network); // "mainnet" | "testnet" | "futurenet"
+
+async function handleSend() {
+  const confirmed = await guard.requestConfirmation();
+  if (!confirmed) return; // user cancelled or non-mainnet — guard already resolved
+  await sendPayment(...);
+}
+
+// Render the confirmation dialog when guard.isPending is true
+{guard.isPending && (
+  <MainnetConfirmDialog
+    actionDescription="Send 10 XLM to GDEST…"
+    onConfirm={guard.confirm}
+    onCancel={guard.cancel}
   />
 )}
 ```
-
-Fields that cannot be determined (e.g. fee estimation fails) are set to `null`
-in the summary and rendered as "—" in the panel — they are never hidden.
 
 ## Setup
 
