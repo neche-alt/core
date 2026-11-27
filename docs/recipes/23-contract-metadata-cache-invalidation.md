@@ -113,7 +113,7 @@ import {
 } from "sorokit-core/soroban/contractMetadata";
 import { invokeContract } from "sorokit-core/soroban/invokeContract";
 
-const rpcUrl     = "https://soroban-testnet.stellar.org";
+const rpcUrl  = "https://soroban-testnet.stellar.org";
 const contractId = "CABC..."; // your contract address
 
 // 1. Upgrade transaction confirmed on-chain.
