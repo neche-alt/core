@@ -1,61 +1,64 @@
 # transaction-dashboard
 
-React and Vue examples for a live transaction status dashboard powered by `sorokit-core`.
+A React component that subscribes to a `TransactionStatusAggregator` and renders live metrics, status distribution, and recent transactions — using `sorokit-core` in a framework-agnostic way.
+
+```
+Poll source → Aggregate → Subscribe → Render metrics + recent txs
+```
 
 ## Patterns covered
 
-- Subscribing to `TransactionStatusAggregator` for live snapshot updates
-- Polling a transaction source with `streamTransactionStatus`
-- **Error recovery affordances (#106)**:
-  - Read failures (snapshot reload, balance fetch) show a **Retry** button — the operation is idempotent and safe to repeat immediately
-  - Write failures (transaction submission) show a **status-check prompt** with a block-explorer link so the user confirms the transaction did not land before resubmitting, preventing double-spends
-
-## Error recovery rules
-
-| Error kind | Recovery control | Why |
-|---|---|---|
-| `read` | "Retry" button | Re-fetching data has no side-effects |
-| `write` | Status-check link + warning | Blind resubmission can double-spend |
+- Subscribing to `TransactionStatusAggregator` with `aggregator.subscribe`
+- Streaming live updates with `streamTransactionStatus`
+- Rendering `DashboardSnapshot` (metrics, chart data, recent entries)
+- Responsive layout that works at mobile, tablet, and desktop widths
 
 ## Files
 
-| File | Framework | Purpose |
-|---|---|---|
-| `react-dashboard.example.tsx` | React | Aggregator subscription, metrics, error recovery |
-| `vue-dashboard.example.vue` | Vue 3 | Same patterns with Composition API |
+| File | Purpose |
+|---|---|
+| `react-dashboard.example.tsx` | Full React component with inline responsive styles |
+| `responsive-layout.test.ts` | Layout token audit — verifies overflow prevention at all viewport sizes |
+
+## Responsive layout
+
+The dashboard is audited at three viewport sizes:
+
+| Breakpoint | Behaviour |
+|---|---|
+| Mobile (≤ 480 px) | Single-column grid; metrics strip wraps to multiple lines; transaction hashes truncated with ellipsis |
+| Tablet (≤ 768 px) | Single or two-column grid depending on available width (`auto-fit`) |
+| Desktop (> 768 px) | Two-column grid; full metrics strip in one row |
+
+All layout is implemented with inline styles so the component is self-contained and needs no external CSS. Key rules that prevent overflow:
+
+- `width: 100%; maxWidth: 960` on the outer container — fills narrow screens, caps on wide ones.
+- `flexWrap: wrap` on the metrics strip — items reflow instead of overflowing.
+- `gridTemplateColumns: repeat(auto-fit, minmax(240px, 1fr))` — grid collapses to one column automatically.
+- `overflow: hidden; textOverflow: ellipsis; whiteSpace: nowrap; minWidth: 0` on hash cells — long hashes never break the row.
 
 ## Setup
 
-```ts
-import { TransactionStatusAggregator, streamTransactionStatus } from "sorokit-core/transaction";
-
-const dashboard = new TransactionStatusAggregator({ maxEntries: 1000 });
-
-// Start polling
-const stop = streamTransactionStatus(fetchRecentTxs, dashboard, { intervalMs: 5000 });
-
-// Subscribe a UI listener
-const unsub = dashboard.subscribe((snapshot) => render(snapshot));
-
-// Tear down on unmount
-stop();
-unsub();
+```bash
+npm install sorokit-core
 ```
 
-## Signalling a write error
-
 ```ts
-// After a failed submission, set an error with kind "write" and the txHash.
-// The dashboard will show a status-check link instead of a retry button.
-setDashError({
-  kind: "write",
-  message: "Submission timed out — outcome unknown.",
-  txHash: result.txHash,
-});
+import {
+  TransactionStatusAggregator,
+  streamTransactionStatus,
+} from "sorokit-core";
+import { TransactionStatusDashboard, startLiveUpdates } from "./react-dashboard.example";
+
+// Start polling your transaction source
+const stop = startLiveUpdates(async () => fetchRecentTransactions());
+
+// Render <TransactionStatusDashboard /> anywhere in your React tree
+// Call stop() on unmount to cancel polling
 ```
 
-Type-check against the SDK source:
+## Running the layout tests
 
 ```bash
-npm run typecheck:examples
+npm run test -- examples/transaction-dashboard/responsive-layout.test.ts
 ```
