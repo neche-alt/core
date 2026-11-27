@@ -13,6 +13,19 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- Distinguishing user rejection from transport or contract failure
+
+## Handling wallet rejection
+
+When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
+
+| Error code | Displayed message |
+|---|---|
+| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
+| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
+| Any other failure | Original SDK error message |
+
+The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
 
 ## Files
 
@@ -20,7 +33,8 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
-| `src/AccessibleWalletControls.tsx` | Keyboard-operable controls with aria labels and live status announcements |
+| `src/DiagnosticsPanel.tsx` | Opt-in `[DEBUG]` diagnostics panel (see below) |
+| `src/diagnosticsUtils.ts` | Pure helpers: status symbols, colours, latency formatting, secret detection |
 
 ## Setup
 
@@ -63,43 +77,40 @@ Type-check the example against the SDK source:
 npm run typecheck:examples
 ```
 
-## Accessible Wallet Controls
+## SDK Diagnostics Panel
 
-`AccessibleWalletControls` is a drop-in replacement for the basic connect/disconnect buttons. It audits and fixes the accessibility gaps in a typical wallet integration.
+`DiagnosticsPanel` is an opt-in `[DEBUG]` section that runs `runDiagnostics` from `sorokit-core` and displays the results inline. It is intentionally distinct from the main app UI: muted colours, monospace font, dashed border, and a `[DEBUG]` label.
 
-### What it covers
+### What it shows
 
-| Concern | Implementation |
-|---|---|
-| Keyboard operation | All controls are `<button>` elements, operable with Enter/Space |
-| Accessible names | Every button has an explicit `aria-label` including the wallet name and action |
-| Focus visibility | Focus ring rendered via `onFocus`/`onBlur` — `outline` is never suppressed |
-| Status announcements | `aria-live="polite"` region announces every state change to screen readers |
-| Disabled state | Uses the HTML `disabled` attribute (not just visual opacity), plus `aria-disabled` |
-| Error announcements | Errors rendered in a `role="alert"` region for immediate announcement |
-| Account address | Full key in `title` and `aria-label`; truncated text shown visually |
+- Overall SDK status (healthy / degraded / unavailable)
+- SDK version, network, and report timestamp
+- Per-check rows: Horizon connectivity, Soroban RPC, wallet adapter, network configuration, runtime environment
+- Latency for external checks
+- Issues and recommendations per check (expand a row to see them)
+- Aggregated recommendation list
 
-### Provider-specific limitations
-
-Extension wallets (Freighter, xBull, Lobstr, etc.) open a **separate browser popup** for approval. That popup is outside this document's focus management scope — focus cannot be moved into it programmatically from the SDK. The `aria-live` region covers this by announcing the new state once the popup resolves.
-
-WalletConnect uses a QR-code modal injected by the WalletConnect library. That modal manages its own focus trap; no additional focus management is needed from the SDK side.
-
-### Usage
+### How to use it
 
 ```tsx
-import { AccessibleWalletControls } from "./AccessibleWalletControls";
-import { WalletStatusTracker } from "sorokit-core/wallet";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
-const tracker = new WalletStatusTracker();
+// Always visible (useful during local development):
+<DiagnosticsPanel show={true} network="testnet" />
 
-// In your component:
-<AccessibleWalletControls
-  walletStatus={tracker.status}
-  onConnect={() => tracker.connect(adapter)}
-  onDisconnect={() => tracker.disconnect(adapter)}
-  busy={loading}
-/>
+// Visible only in development builds:
+<DiagnosticsPanel show={process.env.NODE_ENV === "development"} network="testnet" />
+
+// Hidden — safe to leave in the tree:
+<DiagnosticsPanel show={false} />
 ```
 
-Pass `busy={true}` during any in-progress operation to prevent double-clicks — it disables all action buttons.
+Pass `walletAdapter` to include a wallet availability check:
+
+```tsx
+<DiagnosticsPanel show={true} network="testnet" walletAdapter={myAdapter} />
+```
+
+### Security
+
+The panel never renders private keys, seeds, mnemonics, or other secrets. The underlying `runDiagnostics` API is strictly read-only: it never connects a wallet, signs anything, or changes SDK state. `containsSecret` in `diagnosticsUtils.ts` provides a defence-in-depth check before any value is rendered.

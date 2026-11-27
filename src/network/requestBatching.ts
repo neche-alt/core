@@ -20,6 +20,22 @@
  * milliseconds of each other) that's always exactly one underlying call
  * regardless of what batchFetcher does, since the batch only ever contains
  * one entry per distinct key.
+ *
+ * ## Adaptive windowing
+ *
+ * When `adaptiveWindow: true` is set, the batcher automatically adjusts its
+ * collection window based on observed inter-arrival times of `request()` calls:
+ *
+ * - Under HIGH load (avg inter-arrival < `minWindowMs * 2`): the window widens
+ *   toward `maxWindowMs` to coalesce more keys per round trip.
+ * - Under LOW load (avg inter-arrival > `targetLatencyMs / 2`): the window
+ *   shrinks toward `minWindowMs` to bound tail latency.
+ * - The window never exceeds `targetLatencyMs`, which acts as a hard latency cap.
+ *
+ * The `onFlush` callback (if provided) fires after each batch with the batch
+ * size and the fill time (ms from first enqueue to flush). Use it to feed
+ * external telemetry without introducing a circular dependency on
+ * `src/performance/telemetry.ts`.
  */
 
 export interface RequestBatcherConfig {
@@ -28,6 +44,33 @@ export interface RequestBatcherConfig {
   windowMs?: number;
   /** Maximum distinct keys per batch; reaching it fires immediately without waiting for windowMs. Default: 20. */
   maxBatch?: number;
+  /**
+   * Enable adaptive windowing. When true, the window shrinks and grows
+   * between `minWindowMs` and `maxWindowMs` based on observed inter-arrival
+   * rate. Default: false.
+   */
+  adaptiveWindow?: boolean;
+  /** Minimum window size (ms) in adaptive mode. Default: 5. */
+  minWindowMs?: number;
+  /** Maximum window size (ms) in adaptive mode. Default: 50. */
+  maxWindowMs?: number;
+  /**
+   * Hard latency cap (ms). The adaptive window never exceeds this value.
+   * Default: 100.
+   */
+  targetLatencyMs?: number;
+  /**
+   * Number of recent inter-arrival samples used to estimate request rate.
+   * Default: 8.
+   */
+  rateWindowSamples?: number;
+  /**
+   * Optional callback fired after each batch flush. Receives the number of
+   * distinct keys and the fill time (ms from the first enqueue in the batch
+   * to the flush). Use this to integrate with telemetry without creating a
+   * circular import on `src/performance/telemetry.ts`.
+   */
+  onFlush?: (stats: { batchSize: number; fillTimeMs: number }) => void;
 }
 
 export interface RequestBatcherStats {
@@ -37,6 +80,10 @@ export interface RequestBatcherStats {
   totalBatches: number;
   /** requestCount of the most recently completed batch. */
   lastBatchSize: number;
+  /** Running average of keys per batch across all completed batches. */
+  avgBatchSize: number;
+  /** Running average of fill time (ms) across all completed batches. */
+  avgBatchFillMs: number;
 }
 
 export type BatchFetcher<K, V> = (keys: readonly K[]) => Promise<Map<K, V> | ReadonlyMap<K, V>>;
@@ -58,6 +105,11 @@ export interface RequestBatcher<K, V> {
  * Each distinct `keyFn(key)` result gets exactly one batchFetcher entry per
  * window; every caller requesting that same key within the window receives
  * the same resolved value (or the same rejection).
+ *
+ * When `config.adaptiveWindow` is true the collection window adjusts
+ * automatically between `minWindowMs` and `min(maxWindowMs, targetLatencyMs)`
+ * based on observed inter-arrival times so high-throughput servers coalesce
+ * more reads while low-throughput servers keep tail latency bounded.
  */
 export function createRequestBatcher<K, V>(
   batchFetcher: BatchFetcher<K, V>,
@@ -65,13 +117,58 @@ export function createRequestBatcher<K, V>(
   keyFn: (key: K) => string = (key) => JSON.stringify(key),
 ): RequestBatcher<K, V> {
   const enabled = config?.enabled ?? true;
-  const windowMs = config?.windowMs ?? 10;
+  const baseWindowMs = config?.windowMs ?? 10;
   const maxBatch = config?.maxBatch ?? 20;
+  const adaptiveWindow = config?.adaptiveWindow ?? false;
+  const minWindowMs = config?.minWindowMs ?? 5;
+  const targetLatencyMs = config?.targetLatencyMs ?? 100;
+  const maxWindowMs = Math.min(config?.maxWindowMs ?? 50, targetLatencyMs);
+  const rateWindowSamples = config?.rateWindowSamples ?? 8;
+  const onFlush = config?.onFlush;
 
-  const stats: RequestBatcherStats = { totalRequests: 0, totalBatches: 0, lastBatchSize: 0 };
+  // Adaptive rate tracking
+  const arrivalTimes: number[] = [];
+  let currentWindowMs = baseWindowMs;
+
+  function recordArrival(now: number): void {
+    if (!adaptiveWindow) return;
+    arrivalTimes.push(now);
+    if (arrivalTimes.length > rateWindowSamples + 1) {
+      arrivalTimes.shift();
+    }
+  }
+
+  function updateWindow(): void {
+    if (!adaptiveWindow || arrivalTimes.length < 2) return;
+    // Compute average inter-arrival time from the recorded samples.
+    let totalGap = 0;
+    for (let i = 1; i < arrivalTimes.length; i++) {
+      totalGap += (arrivalTimes[i] as number) - (arrivalTimes[i - 1] as number);
+    }
+    const avgInterArrivalMs = totalGap / (arrivalTimes.length - 1);
+
+    if (avgInterArrivalMs < minWindowMs * 2) {
+      // High load: widen toward maxWindowMs.
+      currentWindowMs = Math.min(currentWindowMs + 2, maxWindowMs);
+    } else if (avgInterArrivalMs > targetLatencyMs / 2) {
+      // Low load: shrink toward minWindowMs.
+      currentWindowMs = Math.max(currentWindowMs - 2, minWindowMs);
+    }
+    // Clamp to the latency cap.
+    currentWindowMs = Math.min(currentWindowMs, targetLatencyMs);
+  }
+
+  const stats: RequestBatcherStats = {
+    totalRequests: 0,
+    totalBatches: 0,
+    lastBatchSize: 0,
+    avgBatchSize: 0,
+    avgBatchFillMs: 0,
+  };
 
   let pendingKeys: Map<string, K> | null = null;
   let pendingEntries: Map<string, PendingEntry<V>[]> | null = null;
+  let batchStartTime: number | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function flush(): void {
@@ -81,13 +178,27 @@ export function createRequestBatcher<K, V>(
     }
     const keysMap = pendingKeys;
     const entriesMap = pendingEntries;
+    const startedAt = batchStartTime;
     pendingKeys = null;
     pendingEntries = null;
+    batchStartTime = null;
     if (!keysMap || !entriesMap || keysMap.size === 0) return;
 
     const keys = Array.from(keysMap.values());
+    const batchSize = keys.length;
+    const fillTimeMs = startedAt !== null ? Date.now() - startedAt : 0;
+
     stats.totalBatches += 1;
-    stats.lastBatchSize = keys.length;
+    stats.lastBatchSize = batchSize;
+    // Update running averages.
+    const n = stats.totalBatches;
+    stats.avgBatchSize = stats.avgBatchSize + (batchSize - stats.avgBatchSize) / n;
+    stats.avgBatchFillMs = stats.avgBatchFillMs + (fillTimeMs - stats.avgBatchFillMs) / n;
+
+    onFlush?.({ batchSize, fillTimeMs });
+
+    // Update adaptive window for the next batch using samples recorded so far.
+    updateWindow();
 
     batchFetcher(keys)
       .then((results) => {
@@ -121,12 +232,16 @@ export function createRequestBatcher<K, V>(
       });
     }
 
+    const now = Date.now();
+    recordArrival(now);
+
     const keyId = keyFn(key);
 
     return new Promise<V>((resolve, reject) => {
       if (!pendingKeys) {
         pendingKeys = new Map();
         pendingEntries = new Map();
+        batchStartTime = now;
       }
       pendingKeys.set(keyId, key);
       const existingWaiters = pendingEntries!.get(keyId);
@@ -142,7 +257,8 @@ export function createRequestBatcher<K, V>(
       }
 
       if (timer === null) {
-        timer = setTimeout(flush, windowMs);
+        const windowToUse = adaptiveWindow ? currentWindowMs : baseWindowMs;
+        timer = setTimeout(flush, windowToUse);
       }
     });
   }
