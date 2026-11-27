@@ -28,6 +28,8 @@ export type {
   TelemetryData,
   TelemetryExporterType,
   TelemetrySpan,
+  OtelApiExporterOptions,
 } from "./telemetry";
+export type { TelemetryExporter } from "../shared/openTelemetry";
 export { createCache, CacheBuilder } from "./cacheStrategy";
 export type { CacheOptions, CachedData, CacheStats, CacheFetcher } from "./cacheStrategy";

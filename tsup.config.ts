@@ -27,5 +27,5 @@ export default defineConfig({
   splitting: true,
   treeshake: true,
   minify: true,
-  external: ["@stellar/stellar-sdk", "@walletconnect/sign-client"],
+  external: ["@stellar/stellar-sdk", "@walletconnect/sign-client", "@opentelemetry/api"],
 });

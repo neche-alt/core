@@ -20,6 +20,7 @@ Client page (browser) — trigger action → poll result → show status
 | File | Purpose |
 |---|---|
 | `src/sorokitServer.ts` | Server-side helpers: client factory, sign-and-submit, batch fetch |
+| `src/otelSetup.ts` | OpenTelemetry exporter wiring (optional, tree-shaken when unused) |
 | `src/pages/api/payment.ts` | Next.js API route: receives POST, builds, signs, and submits |
 | `src/pages/api/balances.ts` | API route: batch balance fetch for multiple public keys |
 | `src/pages/index.tsx` | Client page: triggers the payment and displays the result |
@@ -76,6 +77,34 @@ Set your secret key as an environment variable — never hard-code it:
 SIGNING_SECRET_KEY=S...
 STELLAR_NETWORK=testnet
 ```
+
+## OpenTelemetry exporter (optional)
+
+`@opentelemetry/api` is a peer dependency — install it only when you want to
+forward metrics and traces to Prometheus, Jaeger, Datadog, or any OTLP-
+compatible backend. The SDK and this example work without it.
+
+```bash
+npm install @opentelemetry/api @opentelemetry/sdk-node
+```
+
+Call `setupTelemetryFromGlobalProviders()` once at server startup (before any
+request is processed):
+
+```ts
+// server.js or _app.tsx (server-side only)
+import { setupTelemetryFromGlobalProviders } from "./src/otelSetup";
+
+await setupTelemetryFromGlobalProviders();
+```
+
+After that every `traceSpan`, `traceTransactionSubmit`, and `traceContractCall`
+call in the SDK automatically forwards spans and metrics through your registered
+OTel providers.
+
+If you hold explicit `Tracer` and `Meter` instances rather than relying on
+global registration, use the `createOtelApiExporterFromProviders` helper shown
+in `src/otelSetup.ts`.
 
 ## Security note
 

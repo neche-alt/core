@@ -60,12 +60,18 @@ import type {
   OtelMetricRecord,
   OtelMetricSummary,
   SpanData,
+  SpanKind,
+  SpanStatusCode,
   StartSpanOptions,
   TelemetryExporter,
 } from "../shared/openTelemetry";
 import { generateTraceId } from "../shared/utils";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
+
+// Re-exported so consumers can type the `customExporter` field of
+// {@link TelemetryConfig} without reaching into the shared internals.
+export type { TelemetryExporter } from "../shared/openTelemetry";
 
 // ─── Public Types ───────────────────────────────────────────────────────────
 
@@ -117,6 +123,17 @@ export interface TelemetryConfig {
    * unauthenticated OTLP.
    */
   apiKey?: string | undefined;
+
+  /**
+   * A pre-built exporter to send spans and metrics to, taking precedence over
+   * the built-in Jaeger/Datadog/OTLP/console/memory selection driven by
+   * `exporter`. Use this to wire a custom backend — most notably the official
+   * OpenTelemetry JS API bridge built by {@link createOtelApiExporter}, which
+   * forwards SDK spans/metrics to a host-configured `TracerProvider` /
+   * `MeterProvider` and on to any OTel-compatible backend. When unset, the
+   * built-in exporter selected by `exporter` is used.
+   */
+  customExporter?: TelemetryExporter | undefined;
 
   /** Metrics flush interval in milliseconds. @default 10000 */
   metricsIntervalMs?: number | undefined;
@@ -249,7 +266,17 @@ export function resolveOpenTelemetryConfig(config: TelemetryConfig): OpenTelemet
     sampleRate: config.samplingRate ?? 1.0,
     metricsIntervalMs: config.metricsIntervalMs ?? 10_000,
     ...(config.headers !== undefined ? { headers: config.headers } : {}),
+    ...(config.customExporter !== undefined
+      ? { customExporter: config.customExporter }
+      : {}),
   };
+
+  // A user-supplied customExporter takes precedence over the built-in exporter
+  // selection. OpenTelemetryManager routes through `customExporter` when one is
+  // present, so we short-circuit here and skip constructing a backend exporter.
+  if (config.customExporter !== undefined) {
+    return { ...base, exporter: "none" };
+  }
 
   if (exporterType === "datadog") {
     return {
@@ -500,6 +527,14 @@ export function traceAccountFetch<T>(
   attributes?: Record<string, unknown>,
 ): Promise<T> {
   return traceSpan("account.fetch", fn, attributes ? { attributes } : {});
+}
+
+/** Traces a Soroban contract invocation under the `contract.call` span name. */
+export function traceContractCall<T>(
+  fn: (span?: TelemetrySpan) => Promise<T> | T,
+  attributes?: Record<string, unknown>,
+): Promise<T> {
+  return traceSpan("contract.call", fn, attributes ? { attributes } : {});
 }
 
 // ─── Metrics Helpers ────────────────────────────────────────────────────────
