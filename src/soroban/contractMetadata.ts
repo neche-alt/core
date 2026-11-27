@@ -131,6 +131,34 @@ export function invalidateContractCache(
   cache?.invalidate(key);
 }
 
+/**
+ * Invalidate all cached metadata for a contract — both the method list and the
+ * typed schema — so the next call re-fetches from the network.
+ *
+ * Call this after a contract upgrade or when switching RPC endpoints to ensure
+ * stale argument types do not reach the encoder.
+ *
+ * `invalidateContractCache` only clears the method/ABI list; this function
+ * additionally clears the typed schema cache (`sorokit:contract-schema:{contractId}`),
+ * making it the right choice whenever argument types may have changed.
+ *
+ * @param contractId - Stellar contract address (C...).
+ * @param cache      - Optional external cache to clear alongside the in-memory caches.
+ */
+export function invalidateContractMetadataCache(
+  contractId: string,
+  cache?: SorokitCache,
+): void {
+  // Clear the method/ABI cache
+  invalidateContractCache(contractId, cache);
+  // Clear the typed schema cache for the same contract.
+  // schemaCacheKey() is defined later in this module; both caches are
+  // invalidated atomically from the caller's perspective.
+  const schemaKey = schemaCacheKey(contractId);
+  schemaCache.delete(schemaKey);
+  cache?.invalidate(schemaKey);
+}
+
 function isMetadataCacheEntry(value: unknown): value is MetadataCacheEntry {
   if (!value || typeof value !== "object") return false;
 
