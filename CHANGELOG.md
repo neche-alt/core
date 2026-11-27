@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- CI now uses Yarn 4 (the declared `packageManager`) with `--immutable` installs across all jobs — typecheck, lint, test, build, and security audit — ensuring the same dependency graph as local development. Added `.yarnrc.yml` enabling `nodeLinker: node-modules` and `enableImmutableInstalls: true`. Updated `CONTRIBUTING.md` to reflect Yarn as the primary setup command (#109).
+- Publishing recovery guide (`docs/publish-recovery.md`) documenting five failure states (tag orphaned, release draft missing, partial upload, wrong version published, tag/publish mismatch), step-by-step recovery for each, a Dry-Run Validation section, and a Checklist Before Retrying a Failed Publish to prevent blind retries (#125).
+- `scripts/publish-preflight.sh` — validates registry credentials, checks whether the target version is already live, verifies git tag alignment, confirms `dist/` output is present, and runs `npm publish --dry-run` before any live publish (#125).
 - Lazy loading (#682): `sorokit-core/lazy` entry with `loadModule(name)`, `preloadModules`, `isModuleLoaded` and `getLoadedModules` over a registry of lazy-loadable modules (soroban, integration, governance, keyManagement, streaming, privacy, compliance). Its initial load is ~0.5 KiB gzip, versus 50.3 KiB when the same modules are imported eagerly. `src/lazy.ts` moved to `src/lazy/index.ts` with its existing exports unchanged. See `docs/lazy-loading.md`.
 - Governance (#686): `getProposals`, `getProposal`, `voteOnProposal`, `getVotingPower` and `trackProposal` in `src/integration/governance.ts`, with a pluggable `GovernanceProvider`, `createHttpGovernanceProvider` and `configureGovernance`. Available on `client.integration` and exported from `sorokit-core/integration` and the root (as `getGovernanceVotingPower`). See `docs/governance.md`.
 - Initial public release of sorokit-core

@@ -164,6 +164,11 @@ Fixes #123 / Implements feature X
 Your PR can only be merged if ALL of the following are true:
 
 1. ✅ **All CI checks pass** — type-check, lint, test, build
+
+> **CI dependency caching**: every job caches `~/.npm` keyed on
+> `hashFiles('package-lock.json')`. Changing `package-lock.json` forces a
+> full cache miss on the next run. Generated build artifacts (`dist/`) are
+> never cached as dependencies.
 2. ✅ **At least 1 reviewer approval** — code review complete
 3. ✅ **No unresolved conversations** — feedback addressed
 4. ✅ **Branch is up to date with main** — enforced by GitHub, use "Update branch" button if needed
@@ -301,7 +306,24 @@ Bump the version in `package.json` for releases (maintainers handle this).
 - **Clean:** `yarn clean` — Removes `dist/`
 - **Dev:** `yarn dev` — Watch mode for development
 
-Releases are handled by maintainers and published to npm.
+### Tagged releases
+
+Releases are created by pushing a version tag. The `release.yml` workflow runs automatically and enforces the following gates before creating a GitHub release:
+
+1. **Tag validation** — the tag must match `v<major>.<minor>.<patch>` and the `version` field in `package.json` must match the tag (pre-release suffixes are accepted).
+2. **Build and test gates** — typecheck, lint, test, and build must all pass on Node.js 22.
+3. **Provenance attestation** — a signed SLSA provenance attestation is generated for the dist outputs using GitHub's OIDC token (`actions/attest-build-provenance`).
+4. **Release summary** — the GitHub release body records the source commit SHA, tag, and build environment so every published artifact is traceable to an exact commit.
+
+To cut a release:
+
+```bash
+# Bump version in package.json first, then:
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+Pre-release tags (e.g. `v1.2.3-beta.1`) are automatically marked as pre-releases on GitHub.
 
 ## Asking for Help
 
