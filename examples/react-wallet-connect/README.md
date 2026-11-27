@@ -14,48 +14,28 @@ Connect wallet → Fetch balances → Build payment → Review summary → Confi
 - **Showing a confirmation summary before the wallet prompt opens** (#105)
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- Distinguishing user rejection from transport or contract failure
+
+## Handling wallet rejection
+
+When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
+
+| Error code | Displayed message |
+|---|---|
+| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
+| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
+| Any other failure | Original SDK error message |
+
+The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment flow |
-| `src/App.tsx` | UI: connect button, balance list, payment form, confirmation summary |
-| `src/TransactionConfirmationSummary.tsx` | Reusable summary panel shown before signing |
-
-## Confirmation summary (#105)
-
-A demo should teach integrators to show users what they are approving before
-the wallet extension opens. This example enforces a two-step flow:
-
-1. The user fills in the payment form and clicks **Review & send**.
-2. `useSorokit` builds the transaction XDR and fetches a fee estimate (if
-   available), then sets `pendingSummary` — it does **not** open the wallet.
-3. `App.tsx` renders `TransactionConfirmationSummary`, which displays:
-   - Network (e.g. `testnet`)
-   - Destination address
-   - Operation summary (e.g. "Send 10 XLM to GDEST000…")
-   - Asset
-   - Amount
-   - Estimated fee in stroops (labelled "—" when unavailable)
-4. The user clicks **Confirm & open wallet** → `confirmPayment()` is called →
-   the wallet extension opens for signing → the transaction is submitted.
-5. If the user clicks **Cancel** → `cancelPayment()` discards the pending XDR
-   without opening the wallet extension.
-
-```tsx
-// In your own component:
-{pendingSummary && (
-  <TransactionConfirmationSummary
-    summary={pendingSummary}
-    onConfirm={confirmPayment}
-    onCancel={cancelPayment}
-  />
-)}
-```
-
-Fields that cannot be determined (e.g. fee estimation fails) are set to `null`
-in the summary and rendered as "—" in the panel — they are never hidden.
+| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
+| `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
+| `src/DiagnosticsPanel.tsx` | Opt-in `[DEBUG]` diagnostics panel (see below) |
+| `src/diagnosticsUtils.ts` | Pure helpers: status symbols, colours, latency formatting, secret detection |
 
 ## Setup
 
@@ -105,3 +85,41 @@ Type-check the example against the SDK source:
 ```bash
 yarn typecheck:examples
 ```
+
+## SDK Diagnostics Panel
+
+`DiagnosticsPanel` is an opt-in `[DEBUG]` section that runs `runDiagnostics` from `sorokit-core` and displays the results inline. It is intentionally distinct from the main app UI: muted colours, monospace font, dashed border, and a `[DEBUG]` label.
+
+### What it shows
+
+- Overall SDK status (healthy / degraded / unavailable)
+- SDK version, network, and report timestamp
+- Per-check rows: Horizon connectivity, Soroban RPC, wallet adapter, network configuration, runtime environment
+- Latency for external checks
+- Issues and recommendations per check (expand a row to see them)
+- Aggregated recommendation list
+
+### How to use it
+
+```tsx
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
+
+// Always visible (useful during local development):
+<DiagnosticsPanel show={true} network="testnet" />
+
+// Visible only in development builds:
+<DiagnosticsPanel show={process.env.NODE_ENV === "development"} network="testnet" />
+
+// Hidden — safe to leave in the tree:
+<DiagnosticsPanel show={false} />
+```
+
+Pass `walletAdapter` to include a wallet availability check:
+
+```tsx
+<DiagnosticsPanel show={true} network="testnet" walletAdapter={myAdapter} />
+```
+
+### Security
+
+The panel never renders private keys, seeds, mnemonics, or other secrets. The underlying `runDiagnostics` API is strictly read-only: it never connects a wallet, signs anything, or changes SDK state. `containsSecret` in `diagnosticsUtils.ts` provides a defence-in-depth check before any value is rendered.

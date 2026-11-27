@@ -2,6 +2,7 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { err, ok, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { resolveFederatedAddress } from "../integration/federationResolver";
+import { requireBrowserAPIs } from "../shared/browserCompatibility";
 
 export interface WalletInfo {
   id: string;
@@ -52,6 +53,9 @@ function normalizeDomain(domain: string): string | null {
 export async function discoverAvailableWallets(): Promise<
   SorokitResult<WalletInfo[]>
 > {
+  const guard = requireBrowserAPIs(["fetch"]);
+  if (guard.status === "error") return guard;
+
   try {
     const isBrowser = typeof window !== "undefined";
     const wallets: WalletInfo[] = [

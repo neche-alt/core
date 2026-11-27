@@ -22,6 +22,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createSorokitClient } from "../../../src/client/createSorokitClient";
 import { FreighterAdapter } from "../../../src/wallet/adapters/freighter";
+import { walletErrorMessage } from "../../../src/wallet/rejectionMessaging";
 import type { SorokitClient } from "../../../src/client/createSorokitClient";
 import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
@@ -100,7 +101,7 @@ export function useSorokit(
 
     const result = await client.wallet.connect(adapter);
     if (result.status === "error") {
-      setError(result.error.message);
+      setError(walletErrorMessage(result.error));
     } else {
       setWalletState(result.data);
       setStatus("Wallet connected");
@@ -169,19 +170,17 @@ export function useSorokit(
         return;
       }
 
-      // 2. Attempt a fee estimate so the confirmation panel can show it.
-      //    If the estimate fails we still show the summary — feeStroops is null.
-      let feeStroops: string | null = null;
-      try {
-        const feeResult = await client.transaction.estimateFee({
-          transactionXdr: built.data,
-          network: client.networkConfig.network,
-        });
-        if (feeResult.status === "ok") {
-          feeStroops = String(feeResult.data.feeStroops);
-        }
-      } catch {
-        // fee estimation is best-effort; leave feeStroops as null
+      // 2. Prompt the wallet to sign
+      const signed = await client.wallet.signTransaction(adapter, {
+        transactionXdr: built.data,
+        networkPassphrase: client.networkConfig.networkPassphrase,
+      });
+      if (signed.status === "error") {
+        // WALLET_SIGN_REJECTED means the user clicked "Reject" — not a crash.
+        // Show an actionable message; never suggest automatic resubmission.
+        setError(walletErrorMessage(signed.error));
+        setLoading(false);
+        return;
       }
 
       // 3. Store the unsigned XDR for use in confirmPayment.
