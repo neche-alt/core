@@ -652,6 +652,40 @@ ac.abort();
 
 The same pattern applies to `client.transaction.stream()`.
 
+### Cursor-based resumption
+
+Transaction streams yield a `nextCursor` on each page. Save it with `createCursorStore()` and pass it back as `cursor` to resume without replaying history. Use `PersistentEventDeduplicationStore` to prevent duplicate processing across reconnects:
+
+```ts
+import { streamTransactions, createCursorStore, PersistentEventDeduplicationStore } from "sorokit-core";
+
+const cursorStore = createCursorStore(); // localStorage in browsers, memory in Node
+const dedup = new PersistentEventDeduplicationStore();
+const CURSOR_KEY = `tx-stream:${publicKey}`;
+
+const savedCursor = await cursorStore.load(CURSOR_KEY);
+const ac = new AbortController();
+
+for await (const result of streamTransactions(horizonUrl, publicKey, {
+  cursor: savedCursor,
+  order: "asc",
+  enableAutoRetry: true,
+}, ac.signal)) {
+  if (result.status === "ok") {
+    for (const tx of result.data.transactions) {
+      if (await dedup.has(tx.hash)) continue;
+      await processTransaction(tx);
+      await dedup.add(tx.hash);
+    }
+    if (result.data.nextCursor !== null) {
+      await cursorStore.save(CURSOR_KEY, result.data.nextCursor);
+    }
+  }
+}
+```
+
+For the full specification — startup semantics, reconnect backoff schedule, cursor ordering requirements, delivery guarantees, and event-emitter backpressure — see [docs/streaming-lifecycle.md](docs/streaming-lifecycle.md).
+
 ### Real-time transaction SSE
 
 Transaction streams can use Horizon Server-Sent Events to avoid polling latency.
