@@ -107,6 +107,8 @@ import { resolveNetwork, NETWORK_DEFAULTS } from "sorokit-core/network";
 import { createMockWalletAdapter, createMockClient } from "sorokit-core/testing";
 ```
 
+For supported upstream Stellar SDK versions, XDR compatibility guarantees, and migration checks, see the [Stellar SDK Upgrade & Migration Notes](docs/stellar-sdk-migration-notes.md).
+
 ---
 
 ## Quick Start
