@@ -151,9 +151,22 @@ console.log("Contract call confirmed. Tx hash:", executed.data);
 ### Error handler
 
 ```ts
+import { decodeContractError, ROUTER_CONTRACT_ERRORS } from "sorokit-core";
 import type { SorokitError } from "sorokit-core";
 
 function handleInvokeError(error: SorokitError): void {
+  // Decode custom contract failure codes and extract remediation guidance
+  const decoded = decodeContractError(error.cause ?? error, ROUTER_CONTRACT_ERRORS);
+  if (decoded.decoded) {
+    console.error(`Contract Error [${decoded.code}]:`, decoded.message);
+    if (decoded.remediation) {
+      console.info("Suggested remediation:", decoded.remediation);
+    }
+    if (decoded.diagnostic) {
+      console.debug("Diagnostic context:", decoded.diagnostic);
+    }
+  }
+
   switch (error.code) {
     case "CONTRACT_NOT_FOUND":
       console.error("The contract does not exist or is archived:", error.message);

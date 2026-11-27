@@ -145,6 +145,13 @@ export {
   FACTORY_ERROR_CODES,
   ROUTER_ERROR_CODES,
 } from "./contractErrors";
+export {
+  MockHostError,
+  SANITIZED_KNOWN_ERROR_FIXTURES,
+  SANITIZED_UNKNOWN_ERROR_FIXTURES,
+  SANITIZED_PARTIAL_ERROR_FIXTURES,
+  SANITIZED_MALFORMED_ERROR_FIXTURES,
+} from "./contractErrorFixtures";
 export type {
   ContractErrorInfo,
   ContractErrorMap,

@@ -996,6 +996,13 @@ export {
   FACTORY_ERROR_CODES,
   ROUTER_ERROR_CODES,
 } from "./soroban/contractErrors";
+export {
+  MockHostError,
+  SANITIZED_KNOWN_ERROR_FIXTURES,
+  SANITIZED_UNKNOWN_ERROR_FIXTURES,
+  SANITIZED_PARTIAL_ERROR_FIXTURES,
+  SANITIZED_MALFORMED_ERROR_FIXTURES,
+} from "./soroban/contractErrorFixtures";
 export type {
   ContractErrorInfo,
   ContractErrorMap,

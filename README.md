@@ -457,7 +457,31 @@ client.soroban.invoke(params, (xdr) =>
 )
 ```
 
-#### Nested contract failure decoding
+#### Contract error decoding and regression fixtures
+
+Decode Soroban simulation and execution errors into structured codes, human-readable messages, and remediation guidance while retaining raw diagnostic context:
+
+```ts
+import {
+  decodeContractError,
+  ROUTER_CONTRACT_ERRORS,
+  FACTORY_CONTRACT_ERRORS,
+} from "sorokit-core";
+
+// Decode an RPC or contract simulation failure
+const decoded = decodeContractError(error, ROUTER_CONTRACT_ERRORS);
+if (decoded.decoded) {
+  console.log(`Error ${decoded.code}: ${decoded.message}`);
+  if (decoded.remediation) console.log("Remediation:", decoded.remediation);
+}
+
+// Raw diagnostic context (events, XDR, or error payload) is always retained:
+console.log("Raw error:", decoded.raw);
+if (decoded.diagnostic) console.log("Diagnostic payload:", decoded.diagnostic);
+```
+
+
+#### Contract deployment
 
 `decodeNestedContractFailure` traverses a full failure tree from a simulation or invocation
 error without dropping the original RPC response:
