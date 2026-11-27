@@ -5,8 +5,9 @@
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
  *
- * User-facing strings are routed through src/shared/i18n.ts so translators
- * and extraction tooling can discover every message key in one place.
+ * For streaming a live, growing activity feed into a virtualized list (with
+ * cursor-based resume and backpressure handling), see:
+ * `examples/transaction-dashboard/virtualized-activity-feed.example.tsx`
  */
 import { useEffect, useState } from "react";
 import {
@@ -15,9 +16,7 @@ import {
   type DashboardSnapshot,
 } from "../../src/transaction/transactionDashboard";
 import type { TransactionResult } from "../../src/transaction/types";
-import { createI18n } from "../../src/shared/i18n";
-
-const i18n = createI18n({ locale: "en" });
+import { TransactionTimeline } from "./transaction-timeline";
 
 export const dashboard = new TransactionStatusAggregator({ maxEntries: 1000 });
 
@@ -65,6 +64,14 @@ export function TransactionStatusDashboard({ aggregator = dashboard }: { aggrega
           </li>
         ))}
       </ol>
+
+      {/* Per-transaction timeline for the most recent entry */}
+      {snapshot.recent.length > 0 && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3>Latest transaction</h3>
+          <TransactionTimeline tx={snapshot.recent[0].tx} />
+        </div>
+      )}
     </section>
   );
 }
