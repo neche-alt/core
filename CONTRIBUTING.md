@@ -160,6 +160,11 @@ Fixes #123 / Implements feature X
 Your PR can only be merged if ALL of the following are true:
 
 1. ✅ **All CI checks pass** — type-check, lint, test, build
+
+> **CI dependency caching**: every job caches `~/.npm` keyed on
+> `hashFiles('package-lock.json')`. Changing `package-lock.json` forces a
+> full cache miss on the next run. Generated build artifacts (`dist/`) are
+> never cached as dependencies.
 2. ✅ **At least 1 reviewer approval** — code review complete
 3. ✅ **No unresolved conversations** — feedback addressed
 4. ✅ **Branch is up to date with main** — enforced by GitHub, use "Update branch" button if needed
