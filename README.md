@@ -611,6 +611,7 @@ const adapter = new SWKSignAdapter(swkInstance); // NEW
 - `SWKSignAdapter` - Custom SWK-based signing adapter
 - `signTransactionOffline()` - Sign transactions without wallet connection (NEW)
 - `walletStatusTracker` - Real-time wallet connection monitoring (NEW)
+- `defineWalletAdapterContractTests` - Reusable conformance test suite exported via `sorokit-core/testing` (NEW)
 
 Pass the adapter to `client.wallet.connect()` and `client.wallet.signTransaction()`. The adapter is the only stateful object in the system — the client itself remains stateless.
 
