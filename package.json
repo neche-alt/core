@@ -107,6 +107,9 @@
   ],
   "author": "Sorokit",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "peerDependencies": {
     "@creit.tech/stellar-wallets-kit": ">=1.0.0",
     "@stellar/stellar-sdk": "13.3.0",
