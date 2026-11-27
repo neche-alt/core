@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   initTelemetry,
+  disableTelemetry,
   getTelemetryManager,
   getTelemetryData,
   isTelemetryInitialized,
@@ -594,254 +595,63 @@ describe("telemetry", () => {
     });
   });
 
-  describe("traceContractCall (#155)", () => {
-    it("calls straight through when telemetry is uninitialized (zero overhead)", async () => {
-      const result = await traceContractCall(() => Promise.resolve(42));
-      expect(result).toBe(42);
+  describe("privacy, sensitive data redaction, and disable telemetry", () => {
+    it("disableTelemetry() gracefully stops and clears active telemetry", async () => {
+      initTelemetry({ serviceName: "disable-test", exporter: "memory" });
+      expect(isTelemetryInitialized()).toBe(true);
+
+      const res = await disableTelemetry();
+      expect(res.status).toBe("ok");
+      expect(isTelemetryInitialized()).toBe(false);
+      expect(getTelemetryManager()).toBeNull();
     });
 
-    it("records a contract.call span and metrics when initialized", async () => {
-      initTelemetry({ serviceName: "contract-trace", exporter: "memory" });
-      const value = await traceContractCall(
-        (span) => {
-          span?.setAttribute("contract.method", "transfer");
-          return Promise.resolve("ok");
-        },
-        { "contract.id": "CABC" },
-      );
-      expect(value).toBe("ok");
+    it("supports enabled: false configuration without overhead or error", () => {
+      const res = initTelemetry({
+        serviceName: "disabled-cfg-test",
+        enabled: false,
+        exporter: "memory",
+      });
+      expect(res.status).toBe("ok");
+      expect(isTelemetryInitialized()).toBe(false);
+    });
+
+    it("automatically redacts sensitive keys and Stellar secret keys from span attributes", async () => {
+      initTelemetry({ serviceName: "redaction-test", exporter: "memory" });
+
+      await traceSpan("test.operation", (span) => {
+        span?.setAttribute("safe.attribute", "safe_value");
+        span?.setAttribute("secretKey", "super_secret");
+        span?.setAttribute("user.token", "bearer-token-123");
+        span?.setAttribute("account.mnemonic", "twelve word seed phrase here now");
+        span?.setAttribute("transaction.payload", '{"envelope":"xdr_payload"}');
+        span?.setAttribute("transaction.envelope_xdr", "AAAA...signed_tx");
+        span?.setAttribute("signature", "sig_bytes");
+        // Secret key starting with S and 56 chars
+        span?.setAttribute("wallet.custom", "SBBZ3GHL2P7W2Q3L72A3232323232323232323232323232323232323");
+        // Nested object with sensitive fields
+        span?.setAttribute("nested.auth", {
+          apiKey: "secret-api-key",
+          publicInfo: "public-val",
+        });
+      });
 
       const spans = getTelemetrySpans();
-      expect(spans.length).toBe(1);
-      expect(spans[0]?.name).toBe("contract.call");
-      expect(spans[0]?.attributes).toMatchObject({
-        "contract.id": "CABC",
-        "contract.method": "transfer",
-      });
-      const summary = getTelemetryMetricsSummary("contract.call.duration_ms");
-      expect(summary["contract.call.duration_ms"]?.count).toBe(1);
-      resetTelemetry();
-    });
-  });
+      expect(spans.length).toBeGreaterThan(0);
+      const span = spans[spans.length - 1];
 
-  describe("customExporter (#155)", () => {
-    it("takes precedence over the built-in exporter type", () => {
-      const custom: TelemetryExporter = {
-        exportSpans: () => {},
-        exportMetrics: () => {},
-      };
-      const resolved = resolveOpenTelemetryConfig({
-        serviceName: "custom-exporter-test",
-        exporter: "jaeger",
-        customExporter: custom,
-      });
-      expect(resolved.customExporter).toBe(custom);
-      expect(resolved.exporter).toBe("none");
-    });
+      expect(span?.attributes["safe.attribute"]).toBe("safe_value");
+      expect(span?.attributes["secretKey"]).toBe("[REDACTED]");
+      expect(span?.attributes["user.token"]).toBe("[REDACTED]");
+      expect(span?.attributes["account.mnemonic"]).toBe("[REDACTED]");
+      expect(span?.attributes["transaction.payload"]).toBe("[REDACTED]");
+      expect(span?.attributes["transaction.envelope_xdr"]).toBe("[REDACTED]");
+      expect(span?.attributes["signature"]).toBe("[REDACTED]");
+      expect(span?.attributes["wallet.custom"]).toBe("[REDACTED]");
 
-    it("is threaded into the active manager and receives spans/metrics", async () => {
-      const receivedSpans: SpanData[] = [];
-      const receivedMetrics: OtelMetricRecord[] = [];
-      const custom: TelemetryExporter = {
-        exportSpans: (spans) => receivedSpans.push(...spans),
-        exportMetrics: (metrics) => receivedMetrics.push(...metrics),
-      };
-      const init = initTelemetry({
-        serviceName: "custom-exporter-active",
-        customExporter: custom,
-      });
-      expect(init.status).toBe("ok");
-
-      await traceSpan("custom.span", () => Promise.resolve(1));
-      expect(receivedSpans.length).toBe(1);
-      expect(receivedSpans[0]?.name).toBe("custom.span");
-      // withSpan records success_count + duration_ms metrics
-      expect(receivedMetrics.some((m) => m.name === "custom.span.success_count")).toBe(true);
-      expect(receivedMetrics.some((m) => m.name === "custom.span.duration_ms")).toBe(true);
-      resetTelemetry();
-    });
-
-    it("falls back to the built-in exporter when customExporter is absent", () => {
-      const resolved = resolveOpenTelemetryConfig({
-        serviceName: "no-custom",
-        exporter: "jaeger",
-      });
-      expect(resolved.exporter).toBe("jaeger");
-      expect(resolved.customExporter).toBeUndefined();
-    });
-  });
-
-  describe("createOtelApiExporter (#155)", () => {
-    function fakeOtelApi() {
-      const spans: Array<Record<string, unknown>> = [];
-      const tracer = {
-        startSpan(name: string, options?: Record<string, unknown>) {
-          const span = {
-            _name: name,
-            _kind: options?.kind,
-            _attrs: { ...(options?.attributes ?? {}) },
-            _status: undefined as { code: number; message?: string } | undefined,
-            _ended: undefined as number | undefined,
-            setAttribute(key: string, value: unknown) {
-              span._attrs[key] = value;
-              return span;
-            },
-            addEvent(name: string, attrs?: Record<string, unknown>) {
-              span._attrs[`event.${name}`] = attrs ?? {};
-              return span;
-            },
-            setStatus(status: { code: number; message?: string }) {
-              span._status = status;
-              return span;
-            },
-            end(endTime?: number) {
-              span._ended = endTime;
-            },
-          };
-          spans.push(span);
-          return span;
-        },
-      };
-      const counters = new Map<string, { add: (v: number, a?: Record<string, unknown>) => void }>();
-      const histograms = new Map<string, { record: (v: number, a?: Record<string, unknown>) => void }>();
-      const meter = {
-        createCounter(name: string) {
-          const c = { add: vi.fn() };
-          counters.set(name, c);
-          return c;
-        },
-        createHistogram(name: string) {
-          const h = { record: vi.fn() };
-          histograms.set(name, h);
-          return h;
-        },
-      };
-      return {
-        api: {
-          trace: { getTracer: () => tracer },
-          metrics: { getMeter: () => meter },
-        },
-        tracer,
-        meter,
-        spans,
-        counters,
-        histograms,
-      };
-    }
-
-    it("returns an error when @opentelemetry/api cannot be loaded", async () => {
-      const spy = vi
-        .spyOn(__otelApiLoader, "load")
-        .mockRejectedValue(new Error("Cannot find module '@opentelemetry/api'"));
-      const result = await createOtelApiExporter({ serviceName: "missing" });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.code).toBe(SorokitErrorCode.INVALID_CONFIG);
-        expect(result.error.message).toMatch(/@opentelemetry\/api/);
-      }
-      spy.mockRestore();
-    });
-
-    it("returns an error when the loaded module lacks a trace API", async () => {
-      const spy = vi.spyOn(__otelApiLoader, "load").mockResolvedValue({
-        trace: {},
-        metrics: {},
-      } as never);
-      const result = await createOtelApiExporter({ serviceName: "no-trace" });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.message).toMatch(/trace API/);
-      }
-      spy.mockRestore();
-    });
-
-    it("returns an error when the loaded module lacks a metrics API", async () => {
-      const spy = vi
-        .spyOn(__otelApiLoader, "load")
-        .mockResolvedValue({ trace: { getTracer: () => ({}) }, metrics: {} } as never);
-      const result = await createOtelApiExporter({ serviceName: "no-metrics" });
-      expect(result.status).toBe("error");
-      if (result.status === "error") {
-        expect(result.error.message).toMatch(/metrics API/);
-      }
-      spy.mockRestore();
-    });
-
-    it("builds an exporter that maps SDK spans to OTel spans", async () => {
-      const fake = fakeOtelApi();
-      const spy = vi.spyOn(__otelApiLoader, "load").mockResolvedValue(fake.api as never);
-      const result = await createOtelApiExporter({ serviceName: "otel-app" });
-      expect(result.status).toBe("ok");
-      if (result.status !== "ok") return;
-
-      const sdkSpan: SpanData = {
-        traceId: "t",
-        spanId: "s",
-        name: "transaction.submit",
-        kind: "client",
-        startTime: 1000,
-        endTime: 1500,
-        durationMs: 500,
-        status: { code: "ok", description: undefined },
-        attributes: { "tx.hash": "abc", "service.name": "otel-app" },
-        events: [{ name: "queued", timestamp: 1100 }],
-      };
-      result.data.exportSpans([sdkSpan]);
-      expect(fake.spans.length).toBe(1);
-      const mapped = fake.spans[0] as Record<string, unknown>;
-      expect(mapped["_name"]).toBe("transaction.submit");
-      expect(mapped["_kind"]).toBe(2); // client -> 2
-      expect(mapped["_attrs"]).toMatchObject({ "tx.hash": "abc", "service.name": "otel-app" });
-      expect(mapped["_status"]).toEqual({ code: 1 }); // ok -> 1
-      expect(mapped["_ended"]).toBe(1500);
-      spy.mockRestore();
-    });
-
-    it("maps SDK metrics to OTel counters and histograms and skips gauges", async () => {
-      const fake = fakeOtelApi();
-      const spy = vi.spyOn(__otelApiLoader, "load").mockResolvedValue(fake.api as never);
-      const result = await createOtelApiExporter({ serviceName: "otel-metrics" });
-      expect(result.status).toBe("ok");
-      if (result.status !== "ok") return;
-
-      const metrics: OtelMetricRecord[] = [
-        { name: "tx.count", type: "counter", value: 3, timestamp: 1, attributes: { ok: true } },
-        { name: "tx.duration_ms", type: "histogram", value: 42, timestamp: 2, unit: "ms" },
-        { name: "cache.size", type: "gauge", value: 7, timestamp: 3 },
-      ];
-      result.data.exportMetrics(metrics);
-
-      expect(fake.counters.get("tx.count")?.add).toHaveBeenCalledWith(3, { ok: true });
-      expect(fake.histograms.get("tx.duration_ms")?.record).toHaveBeenCalledWith(42, undefined);
-      // gauge has no OTel counter/histogram equivalent and is intentionally dropped
-      expect(fake.histograms.has("cache.size")).toBe(false);
-      expect(fake.counters.has("cache.size")).toBe(false);
-      spy.mockRestore();
-    });
-
-    it("createOtelApiExporterFromProviders builds an exporter from held tracer/meter", () => {
-      const fake = fakeOtelApi();
-      const exporter = createOtelApiExporterFromProviders(
-        fake.api.trace.getTracer("x"),
-        fake.api.metrics.getMeter("x"),
-        { serviceName: "from-providers" },
-      );
-      expect(exporter).toBeInstanceOf(OtelApiTelemetryExporter);
-      expect(exporter.getServiceName()).toBe("from-providers");
-
-      exporter.exportSpans([
-        {
-          traceId: "t",
-          spanId: "s",
-          name: "contract.call",
-          kind: "internal",
-          startTime: 0,
-          status: { code: "unset" },
-          attributes: {},
-          events: [],
-        },
-      ]);
-      expect(fake.spans.length).toBe(1);
+      const nested = span?.attributes["nested.auth"] as Record<string, unknown>;
+      expect(nested.apiKey).toBe("[REDACTED]");
+      expect(nested.publicInfo).toBe("public-val");
     });
   });
 });

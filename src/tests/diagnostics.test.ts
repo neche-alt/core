@@ -8,6 +8,7 @@ import {
   checkWalletAdapterStatus,
   combineHealthStatuses,
   runDiagnostics,
+  exportSafeDiagnostics,
   DEFAULT_SLOW_LATENCY_MS,
   type DiagnosticHealthStatus,
 } from "../shared/diagnostics";
@@ -624,5 +625,39 @@ describe("independent execution", () => {
     expect(
       report.checks.find((c) => c.id === "walletAdapter")?.status,
     ).toBe("skipped");
+  });
+
+  describe("exportSafeDiagnostics", () => {
+    it("sanitizes sensitive metadata and secrets before exporting diagnostics", async () => {
+      const rawReport = await runDiagnostics({ fetchFn: okFetch() });
+
+      const extraMetadata = {
+        appVersion: "1.2.3",
+        secretKey: "super-secret-key",
+        apiKey: "api-secret-token",
+        stellarSecret: "SBBZ3GHL2P7W2Q3L72A3232323232323232323232323232323232323",
+        payload: {
+          envelope_xdr: "AAAA...tx_payload",
+          safeNetwork: "testnet",
+        },
+      };
+
+      const safeExport = exportSafeDiagnostics(rawReport, extraMetadata);
+
+      expect(safeExport.redacted).toBe(true);
+      expect(safeExport.sdkVersion).toBe(SDK_VERSION);
+      expect(safeExport.status).toBe("healthy");
+      expect(safeExport.metadata).toBeDefined();
+
+      const meta = safeExport.metadata!;
+      expect(meta.appVersion).toBe("1.2.3");
+      expect(meta.secretKey).toBe("[REDACTED]");
+      expect(meta.apiKey).toBe("[REDACTED]");
+      expect(meta.stellarSecret).toBe("[REDACTED]");
+
+      const nested = meta.payload as Record<string, unknown>;
+      expect(nested.envelope_xdr).toBe("[REDACTED]");
+      expect(nested.safeNetwork).toBe("testnet");
+    });
   });
 });

@@ -1759,6 +1759,7 @@ export type {
 export {
   checkSdkHealth,
   runDiagnostics,
+  exportSafeDiagnostics,
   checkHorizonConnectivity,
   checkSorobanRpcConnectivity,
   checkWalletAdapterStatus,
@@ -1774,6 +1775,7 @@ export type {
   DiagnosticCheckResult,
   SdkHealthReport,
   DiagnosticsReport,
+  SafeDiagnosticsExport,
   SdkHealthOptions,
   EndpointCheckOptions,
 } from "./shared/diagnostics";
@@ -2048,6 +2050,7 @@ export type {
 // ─── Entry point ──────────────────────────────────────────────────────────────
 export {
   initTelemetry,
+  disableTelemetry,
   getTelemetryManager,
   getTelemetryData,
   isTelemetryInitialized,

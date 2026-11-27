@@ -92,6 +92,13 @@ export interface TelemetryConfig {
   /** Logical name of the instrumented service, e.g. `"my-app"`. */
   serviceName: string;
 
+  /**
+   * Whether telemetry instrumentation is enabled.
+   * When false, telemetry operations become immediate zero-overhead no-ops.
+   * @default true
+   */
+  enabled?: boolean | undefined;
+
   /** Version of the instrumented service. @default "0.1.0" */
   serviceVersion?: string | undefined;
 
@@ -260,7 +267,7 @@ export function resolveOpenTelemetryConfig(config: TelemetryConfig): OpenTelemet
   const endpoint = config.endpoint ?? DEFAULT_EXPORTER_ENDPOINTS[exporterType];
 
   const base: OpenTelemetryConfig = {
-    enabled: true,
+    enabled: config.enabled ?? true,
     serviceName: config.serviceName,
     serviceVersion: config.serviceVersion ?? "0.1.0",
     sampleRate: config.samplingRate ?? 1.0,
@@ -472,6 +479,14 @@ export async function shutdownTelemetry(): Promise<SorokitResult<void>> {
       cause,
     );
   }
+}
+
+/**
+ * Disables active telemetry collection and tears down exporter sinks.
+ * Equivalent to {@link shutdownTelemetry}.
+ */
+export async function disableTelemetry(): Promise<SorokitResult<void>> {
+  return shutdownTelemetry();
 }
 
 /**

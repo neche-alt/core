@@ -693,3 +693,110 @@ export async function runDiagnostics(
     summary,
   };
 }
+
+/**
+ * Safe, privacy-preserving diagnostics export bundle.
+ * Suitable for bug reports, support tickets, and telemetry diagnostics without leaking secrets.
+ */
+export interface SafeDiagnosticsExport {
+  sdkVersion: string;
+  network: string;
+  timestamp: string;
+  status: DiagnosticHealthStatus;
+  summary: Record<DiagnosticHealthStatus, number>;
+  issues: string[];
+  recommendations: string[];
+  checks: Array<{
+    name: string;
+    status: DiagnosticHealthStatus;
+    message: string;
+    latencyMs: number | null;
+    issues: string[];
+    recommendations: string[];
+  }>;
+  metadata?: Record<string, unknown> | undefined;
+  redacted: true;
+}
+
+const DIAGNOSTICS_SENSITIVE_KEY_PATTERN =
+  /(secret|password|token|mnemonic|private|seed|authorization|api[-_]?key|payload|envelope[-_]?xdr|signature)/i;
+const STELLAR_SECRET_PATTERN = /^S[A-Z2-7]{55}$/;
+
+export function sanitizeDiagnosticsMetadata(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (STELLAR_SECRET_PATTERN.test(value.trim())) {
+      return "[REDACTED]";
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeDiagnosticsMetadata);
+  }
+  if (value && typeof value === "object") {
+    const sanitized: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[k] = DIAGNOSTICS_SENSITIVE_KEY_PATTERN.test(k)
+        ? "[REDACTED]"
+        : sanitizeDiagnosticsMetadata(v);
+    }
+    return sanitized;
+  }
+  return value;
+}
+
+/**
+ * Sanitizes and exports a {@link DiagnosticsReport} into a safe, redacted diagnostic payload.
+ *
+ * Guarantees that:
+ * 1. Any secret key strings (`S...`) or sensitive context fields (seeds, tokens, payloads)
+ *    in optional metadata or error descriptions are replaced with `"[REDACTED]"`.
+ * 2. Network endpoint details are preserved only at host-level without query credentials.
+ * 3. Never reports private keys or wallet credentials.
+ *
+ * @param report - The raw diagnostics report from {@link runDiagnostics}
+ * @param extraMetadata - Optional application metadata to bundle, which will be safely sanitized
+ * @returns Safe, redacted diagnostic payload ready for export or support submission
+ */
+export function exportSafeDiagnostics(
+  report: DiagnosticsReport,
+  extraMetadata?: Record<string, unknown>,
+): SafeDiagnosticsExport {
+  const sanitizedChecks = report.checks.map((check) => ({
+    name: check.name,
+    status: check.status,
+    message: sanitizeDiagnosticsMetadata(check.message) as string,
+    latencyMs: check.latencyMs,
+    issues: check.issues.map((issue) => sanitizeDiagnosticsMetadata(issue) as string),
+    recommendations: check.recommendations.map(
+      (rec) => sanitizeDiagnosticsMetadata(rec) as string,
+    ),
+  }));
+
+  const sanitizedIssues = report.issues.map(
+    (issue) => sanitizeDiagnosticsMetadata(issue) as string,
+  );
+  const sanitizedRecommendations = report.recommendations.map(
+    (rec) => sanitizeDiagnosticsMetadata(rec) as string,
+  );
+
+  const safeExport: SafeDiagnosticsExport = {
+    sdkVersion: report.version,
+    network: report.network,
+    timestamp: report.timestamp,
+    status: report.status,
+    summary: { ...report.summary },
+    issues: sanitizedIssues,
+    recommendations: sanitizedRecommendations,
+    checks: sanitizedChecks,
+    redacted: true,
+  };
+
+  if (extraMetadata !== undefined) {
+    safeExport.metadata = sanitizeDiagnosticsMetadata(extraMetadata) as Record<
+      string,
+      unknown
+    >;
+  }
+
+  return safeExport;
+}

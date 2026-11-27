@@ -79,9 +79,10 @@ Find what you need by task rather than navigating individual modules:
 ## Guides and Documentation
 
 - [Getting started and SDK usage](https://github.com/TochukwuJustice/core#readme)
-- [Task-oriented workflows](workflows.md)
-- [Architecture guide](architecture.md)
-- [Recipes and Cookbook index](recipes/README.md)
+- [Privacy guidance for telemetry and diagnostics](privacy-and-diagnostics.md)
+- [Supported runtime and browser compatibility](runtime-compatibility.md)
+- [Task-oriented workflows](https://github.com/TochukwuJustice/core/blob/main/docs/workflows.md)
+- [Architecture guide](https://github.com/TochukwuJustice/core/blob/main/docs/architecture.md)
 
 To regenerate this reference locally, run `npm ci --legacy-peer-deps` and
 `npm run docs`, then open `docs/api/index.html`. Generated files are not committed.

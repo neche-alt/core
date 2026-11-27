@@ -132,6 +132,35 @@ export interface StartSpanOptions {
   startTime?: number | undefined;
 }
 
+// ─── Sensitive Attribute Sanitization ───────────────────────────────────────
+
+export const TELEMETRY_SENSITIVE_KEY_PATTERN =
+  /(secret|password|token|mnemonic|private|seed|authorization|api[-_]?key|payload|envelope[-_]?xdr|signature)/i;
+
+export const TELEMETRY_STELLAR_SECRET_PATTERN = /^S[A-Z2-7]{55}$/;
+
+export function sanitizeTelemetryAttributeValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (TELEMETRY_STELLAR_SECRET_PATTERN.test(value.trim())) {
+      return "[REDACTED]";
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeTelemetryAttributeValue);
+  }
+  if (value && typeof value === "object") {
+    const sanitized: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      sanitized[k] = TELEMETRY_SENSITIVE_KEY_PATTERN.test(k)
+        ? "[REDACTED]"
+        : sanitizeTelemetryAttributeValue(v);
+    }
+    return sanitized;
+  }
+  return value;
+}
+
 // ─── Span Implementation ───────────────────────────────────────────────────────
 
 export class SorokitSpan {
@@ -169,7 +198,7 @@ export class SorokitSpan {
     }
 
     if (options.attributes) {
-      Object.assign(this._attributes, options.attributes);
+      this.setAttributes(options.attributes);
     }
   }
 
@@ -195,24 +224,38 @@ export class SorokitSpan {
 
   public setAttribute(key: string, value: unknown): this {
     if (!this._ended) {
-      this._attributes[key] = value;
+      if (TELEMETRY_SENSITIVE_KEY_PATTERN.test(key)) {
+        this._attributes[key] = "[REDACTED]";
+      } else {
+        this._attributes[key] = sanitizeTelemetryAttributeValue(value);
+      }
     }
     return this;
   }
 
   public setAttributes(attributes: Record<string, unknown>): this {
     if (!this._ended) {
-      Object.assign(this._attributes, attributes);
+      for (const [k, v] of Object.entries(attributes)) {
+        this.setAttribute(k, v);
+      }
     }
     return this;
   }
 
   public addEvent(name: string, attributes?: Record<string, unknown> | undefined): this {
     if (!this._ended) {
+      const sanitizedAttributes: Record<string, unknown> = {};
+      if (attributes !== undefined) {
+        for (const [k, v] of Object.entries(attributes)) {
+          sanitizedAttributes[k] = TELEMETRY_SENSITIVE_KEY_PATTERN.test(k)
+            ? "[REDACTED]"
+            : sanitizeTelemetryAttributeValue(v);
+        }
+      }
       this._events.push({
         name,
         timestamp: Date.now(),
-        ...(attributes !== undefined ? { attributes } : {}),
+        ...(attributes !== undefined ? { attributes: sanitizedAttributes } : {}),
       });
     }
     return this;

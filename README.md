@@ -53,6 +53,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 - [Streaming](#streaming)
 - [Networks](#networks)
 - [Testing Utilities](#testing-utilities)
+- [Telemetry and Privacy](#telemetry-and-privacy)
 - [Examples](#examples)
 - [Recipes and Cookbook](#recipes-and-cookbook)
 - [Workflow and Architecture Guides](#workflow-and-architecture-guides)
@@ -1082,6 +1083,31 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [docs/migration-guide.md](docs/migration-guide.md).
 
 Having trouble? The [troubleshooting decision tree](docs/troubleshooting.md) covers wallet setup, endpoint configuration, signing failures, contract errors, circuit-breaker state, and streaming issues — with diagnostic commands and escalation data that excludes secrets and private keys.
+
+---
+
+## Telemetry and Privacy
+
+Sorokit Core includes optional OpenTelemetry instrumentation with strict privacy safeguards:
+
+- **Disabled by default**: Zero background operations, timers, or network traffic unless `initTelemetry()` is called.
+- **Privacy-safe instrumentation**: Only operational metadata (span names, duration, error codes) is collected. Secret keys (`S...`), seeds, mnemonic words, and transaction payload envelopes are never collected.
+- **Automated redaction**: All span attributes matching sensitive patterns or Stellar secret keys are automatically sanitized to `"[REDACTED]"`.
+- **Operator disable**: Call `disableTelemetry()` at any time to flush and terminate active telemetry.
+- **Safe diagnostics export**: Use `exportSafeDiagnostics()` alongside `runDiagnostics()` to produce sanitized diagnostic payloads suitable for bug reports and support tickets without leaking secrets.
+
+```ts
+import { runDiagnostics, exportSafeDiagnostics, disableTelemetry } from "sorokit-core";
+
+const report = await runDiagnostics();
+const safeExport = exportSafeDiagnostics(report);
+console.log("Safe diagnostics:", safeExport);
+
+// Completely disable telemetry
+await disableTelemetry();
+```
+
+> See [Privacy Guidance for Telemetry and Diagnostics](docs/privacy-and-diagnostics.md) for full details on collected data and redaction rules.
 
 ---
 
