@@ -94,7 +94,9 @@
     "validate:consumer-types": "node scripts/validate-consumer-types.js",
     "size:check": "node scripts/check-bundle-size.mjs",
     "analyze:unused": "node scripts/analyzeUnused.js",
-    "analyze:bundle": "node scripts/analyze-bundle.js"
+    "analyze:bundle": "node scripts/analyze-bundle.js",
+    "check:release-metadata": "node scripts/check-release-metadata.mjs",
+    "pre-release:check": "node scripts/pre-release-check.mjs"
   },
   "keywords": [
     "stellar",
