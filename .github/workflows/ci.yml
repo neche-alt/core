@@ -34,10 +34,10 @@ jobs:
             npm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: yarn install --immutable
 
       - name: Typecheck
-        run: npm run typecheck
+        run: yarn typecheck
 
   lint:
     name: Lint
@@ -62,10 +62,10 @@ jobs:
             npm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: yarn install --immutable
 
       - name: Lint
-        run: npm run lint
+        run: yarn lint
 
   test:
     name: Test
@@ -90,10 +90,10 @@ jobs:
             npm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: yarn install --immutable
 
       - name: Tests
-        run: npm run test
+        run: yarn test
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
 
@@ -120,13 +120,13 @@ jobs:
             npm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: yarn install --immutable
 
       - name: Build
-        run: npm run build
+        run: yarn build
 
       - name: Check bundle size
-        run: npm run size:check --if-present
+        run: yarn size:check --if-present
 
   vite-example:
     name: Vite Example Build
@@ -174,7 +174,7 @@ jobs:
             npm-${{ runner.os }}-
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --no-fund
+        run: yarn install --immutable
 
       # Blocking check: fail CI on high or critical vulnerabilities.
       # Severity policy: critical and high severities are blocking; moderate
