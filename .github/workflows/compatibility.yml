@@ -1,0 +1,52 @@
+name: Compatibility
+
+# Runs on every Dependabot PR so the full compatibility suite gates merges
+# for all runtime, dev, and peer dependency updates (issue #113).
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+
+jobs:
+  compatibility:
+    name: Peer-dependency compatibility
+    runs-on: ubuntu-latest
+    # Only block merges when the lockfile actually changes.
+    if: >-
+      github.actor == 'dependabot[bot]' ||
+      contains(github.event.pull_request.labels.*.name, 'dependencies')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm run test
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Build
+        run: npm run build
+
+      - name: Check bundle size
+        run: npm run size:check --if-present

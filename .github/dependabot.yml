@@ -1,0 +1,72 @@
+version: 2
+
+updates:
+  # ── npm: runtime, dev, and peer dependencies ────────────────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+
+    # Open at most 10 PRs at once to keep the queue manageable.
+    open-pull-requests-limit: 10
+
+    # Group updates so the compatibility suite runs once per batch, not per
+    # package.  Stellar/Soroban runtime packages are grouped together because
+    # they must stay version-compatible with each other.
+    groups:
+      stellar-runtime:
+        # Peer dependencies that must stay mutually compatible.
+        patterns:
+          - "@stellar/*"
+          - "@creit.tech/*"
+          - "@walletconnect/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+      tooling:
+        # Build, type, and test tooling — lower risk, can batch freely.
+        patterns:
+          - "typescript"
+          - "tsup"
+          - "vitest"
+          - "@vitest/*"
+          - "typedoc"
+          - "eslint"
+          - "@typescript-eslint/*"
+          - "rimraf"
+          - "cross-env"
+          - "fast-check"
+          - "msw"
+          - "jsdom"
+          - "@types/*"
+
+    # Keep PR titles consistent for easy filtering in the merge queue.
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(dev-deps)"
+      include: scope
+
+    labels:
+      - dependencies
+
+    # Allow reviewers to merge dependency PRs once CI passes.
+    reviewers: []
+
+  # ── GitHub Actions ───────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+      day: monday
+      time: "06:00"
+      timezone: UTC
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+    labels:
+      - dependencies
+      - ci
