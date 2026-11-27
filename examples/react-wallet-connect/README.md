@@ -13,6 +13,19 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
+- Distinguishing user rejection from transport or contract failure
+
+## Handling wallet rejection
+
+When a user declines a wallet prompt, `useSorokit` sets `error` to a calm, actionable message rather than a generic failure string. The UI renders these notices with an amber background (`#fff8e1`) so users understand they made a deliberate decision and know what to do next.
+
+| Error code | Displayed message |
+|---|---|
+| `WALLET_SIGN_REJECTED` | "You declined the transaction. When you're ready, press Send again to review and approve it." |
+| `WALLET_CONNECT_FAILED` + rejection keyword | "Connection declined. Select a wallet and try again." |
+| Any other failure | Original SDK error message |
+
+The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this mapping. Rejection messages never suggest automatic resubmission.
 
 ## Files
 
@@ -20,6 +33,8 @@ Connect wallet → Fetch balances → Build payment → Sign → Submit
 |---|---|
 | `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
 | `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
+| `src/DiagnosticsPanel.tsx` | Opt-in `[DEBUG]` diagnostics panel (see below) |
+| `src/diagnosticsUtils.ts` | Pure helpers: status symbols, colours, latency formatting, secret detection |
 
 ## Setup
 
@@ -62,50 +77,40 @@ Type-check the example against the SDK source:
 npm run typecheck:examples
 ```
 
-## First-run walkthrough
+## SDK Diagnostics Panel
 
-`src/WalkthroughOverlay.tsx` adds a dismissible guided overlay that appears on a
-user's first visit to the demo application. It guides through four steps: welcome,
-wallet connection, network selection, and contract examples.
+`DiagnosticsPanel` is an opt-in `[DEBUG]` section that runs `runDiagnostics` from `sorokit-core` and displays the results inline. It is intentionally distinct from the main app UI: muted colours, monospace font, dashed border, and a `[DEBUG]` label.
 
-**Features:**
-- Dismissible via the ✕ button or the `Escape` key (session-only — reappears on the next load unless completed)
-- Keyboard navigation: `←` / `→` or `Enter` to move between steps, `Escape` to dismiss
-- Persistent completion: clicking **Done ✓** writes a flag to `localStorage` so the overlay never shows again
-- Falls back gracefully when `localStorage` is unavailable (SSR, private browsing, quota exceeded)
+### What it shows
 
-**Usage:**
+- Overall SDK status (healthy / degraded / unavailable)
+- SDK version, network, and report timestamp
+- Per-check rows: Horizon connectivity, Soroban RPC, wallet adapter, network configuration, runtime environment
+- Latency for external checks
+- Issues and recommendations per check (expand a row to see them)
+- Aggregated recommendation list
+
+### How to use it
 
 ```tsx
-import { WalkthroughOverlay } from "./src/WalkthroughOverlay";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
-// Mount once at the app root — it self-hides when completed or dismissed.
-function App() {
-  return (
-    <>
-      <WalkthroughOverlay />
-      {/* rest of your app */}
-    </>
-  );
-}
+// Always visible (useful during local development):
+<DiagnosticsPanel show={true} network="testnet" />
+
+// Visible only in development builds:
+<DiagnosticsPanel show={process.env.NODE_ENV === "development"} network="testnet" />
+
+// Hidden — safe to leave in the tree:
+<DiagnosticsPanel show={false} />
 ```
 
-**Using the manager directly (framework-agnostic):**
+Pass `walletAdapter` to include a wallet availability check:
 
-```ts
-import { createWalkthroughManager } from "sorokit-core";
-
-const manager = createWalkthroughManager({
-  id: "my-app",
-  steps: [
-    { id: "welcome", title: "Welcome", description: "Let's get started." },
-    { id: "wallet",  title: "Connect Wallet", description: "Connect Freighter." },
-  ],
-});
-
-const unsubscribe = manager.subscribe((state) => console.log(state));
-document.addEventListener("keydown", manager.handleKeyDown);
-
-manager.next();     // advance
-manager.complete(); // persist and hide
+```tsx
+<DiagnosticsPanel show={true} network="testnet" walletAdapter={myAdapter} />
 ```
+
+### Security
+
+The panel never renders private keys, seeds, mnemonics, or other secrets. The underlying `runDiagnostics` API is strictly read-only: it never connects a wallet, signs anything, or changes SDK state. `containsSecret` in `diagnosticsUtils.ts` provides a defence-in-depth check before any value is rendered.

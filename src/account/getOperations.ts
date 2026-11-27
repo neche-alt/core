@@ -1,7 +1,7 @@
-import { Horizon } from "@stellar/stellar-sdk";
 import { ok, err, SorokitErrorCode } from "../shared/response";
 import type { SorokitResult } from "../shared/response";
 import { isNotFoundError, toMessage } from "../shared";
+import { createHorizonServer } from "../shared/serverFactory";
 import type {
   GetOperationsOptions,
   OperationInfo,
@@ -37,8 +37,12 @@ function toOperationInfo(record: Record<string, unknown>): OperationInfo {
  *
  * @param horizonUrl - Base URL of the Horizon server.
  * @param publicKey  - Stellar G-address of the account whose operations to fetch.
- * @param options    - Filtering, pagination, and ordering options.
+ * @param options    - Filtering, pagination, ordering options, and optional `signal`.
  * @returns `ok(OperationsPage)` on success, or an error SorokitResult on failure.
+ *
+ * Passing `options.signal` cancels the in-flight Horizon request. If the signal
+ * fires before or during the request, the returned promise rejects with an
+ * `AbortError` (name `"AbortError"`), consistent with the Fetch API contract.
  *
  * @example
  * // First page of payment operations, newest first
@@ -50,6 +54,12 @@ function toOperationInfo(record: Record<string, unknown>): OperationInfo {
  *   result.data.operations.forEach(op => console.log(op.type, op.id));
  *   // Resume with: { cursor: result.data.nextCursor }
  * }
+ *
+ * @example
+ * // Cancel the request when navigating away
+ * const ac = new AbortController();
+ * const result = await getOperations(horizonUrl, publicKey, { signal: ac.signal });
+ * // ac.abort() cancels the in-flight request
  */
 export async function getOperations(
   horizonUrl: string,
@@ -63,9 +73,9 @@ export async function getOperations(
   const order = options.order ?? "desc";
 
   try {
-    const server = new Horizon.Server(horizonUrl);
+    const serverWithSignal = createHorizonServer(horizonUrl, { signal: options.signal });
 
-    let builder = server
+    let builder = serverWithSignal
       .operations()
       .forAccount(publicKey)
       .limit(limit)
@@ -121,6 +131,14 @@ export async function getOperations(
 
     return ok({ operations, nextCursor } satisfies OperationsPage);
   } catch (cause) {
+    // Re-throw AbortError so the caller receives a standard DOMException with
+    // name "AbortError", matching the documented cancellation contract.
+    if (
+      cause instanceof Error &&
+      (cause.name === "AbortError" || (cause as DOMException).code === DOMException.ABORT_ERR)
+    ) {
+      throw cause;
+    }
     return err(
       isNotFoundError(cause)
         ? SorokitErrorCode.ACCOUNT_NOT_FOUND
