@@ -17,8 +17,14 @@ import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
 import type { NetworkType } from "../../../src/network/config";
 import type { ScVal } from "@stellar/stellar-sdk";
+import {
+  buildPendingEvent,
+  buildSimulationProgressEvent,
+  buildRpcErrorEvent,
+  type SimulationProgressEvent,
+} from "../../../src/soroban/simulationFeedback";
 
-export type InvokeProgress = "idle" | "preparing" | "signing" | "confirming" | "done";
+export type InvokeProgress = "idle" | "preparing" | "simulating" | "signing" | "confirming" | "done";
 
 export interface ContractMethod {
   name: string;
@@ -50,6 +56,8 @@ export function useContract(
   const progress = ref<InvokeProgress>("idle");
   const result = ref<string | null>(null);
   const error = ref<string | null>(null);
+  /** Current simulation feedback event — shown before the user is asked to sign. */
+  const simulationFeedback = ref<SimulationProgressEvent | null>(null);
 
   // AbortController for the account stream — cancelled when the component unmounts.
   let streamController: AbortController | null = null;
@@ -133,6 +141,39 @@ export function useContract(
     progress.value = "preparing";
     result.value = null;
     error.value = null;
+    simulationFeedback.value = null;
+
+    // ── Simulate first and show feedback before asking the user to sign ────────
+    // The prepare step internally runs simulation; we surface feedback here so
+    // the user can review estimated fees and any validation issues before the
+    // wallet prompt appears.
+    progress.value = "simulating";
+    simulationFeedback.value = buildPendingEvent();
+
+    const prepared = await client.value.soroban.prepare({
+      contractId,
+      method: methodName,
+      args,
+      sourcePublicKey: walletState.value.publicKey,
+    });
+
+    if (prepared.status === "error") {
+      // Treat a prepare/simulation failure as a validation error so the message
+      // is actionable rather than a raw SDK error code.
+      simulationFeedback.value = buildRpcErrorEvent(prepared.error.message);
+      error.value = simulationFeedback.value.detail ?? prepared.error.message;
+      progress.value = "idle";
+      return;
+    }
+
+    // Surface the simulated fee — never imply this guarantees execution.
+    simulationFeedback.value = buildSimulationProgressEvent({
+      success: true,
+      fee: prepared.data.fee,
+    });
+
+    // Only proceed to signing after the user has seen the simulation result.
+    progress.value = "signing";
 
     const invoked = await client.value.soroban.invoke(
       {
@@ -199,6 +240,7 @@ export function useContract(
     progress,
     result,
     error,
+    simulationFeedback,
     connect,
     disconnect,
     invokeMethod,
