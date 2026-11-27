@@ -1231,12 +1231,24 @@ const result = await client.transaction.submitTransaction(signedXdr, {
 });
 ```
 
+**Key behavior:**
+
+- The check runs client-side, before any network call, so a failed safety check
+  never consumes a sequence number.
+- Failures return `SorokitErrorCode.MAINNET_SAFETY_LIMIT` with an actionable message
+  that names the required opt-in.
+- Operations whose native exposure cannot be bounded from the XDR (account merges,
+  balance claims, liquidity pool operations, Soroban contract calls) also require
+  `bypassMainnetSafety: true` regardless of the threshold.
+- Testnet, Futurenet, and custom networks are unaffected.
+- `bypassMainnetSafety` must be the literal `true`. Truthy values such as `1`,
+  `"true"`, or `{}` are treated as absent and the check still fires.
+- An invalid threshold (NaN, Infinity, negative) returns `SorokitErrorCode.INVALID_CONFIG`.
+
 Warnings include the native amount, threshold, source account, operation count,
-and operation types whose exposure cannot be determined from XDR. Account merges,
-balance claims, liquidity pools, and contract calls require confirmation even when
-no large amount is visible in the envelope. Native offers and payment spend limits
-are counted with exact stroop arithmetic. Fees, reserve changes, and non-native
-asset valuations are outside this guard. Other networks are unaffected.
+and operation types whose exposure cannot be determined from XDR. Native offers
+and payment spend limits are counted with exact stroop arithmetic. Fees, reserve
+changes, and non-native asset valuations are outside this guard.
 
 Soroban submissions use the same guard. Pass safety options as the fourth argument
 to `client.soroban.execute`, or the fifth to `client.soroban.invoke`:
