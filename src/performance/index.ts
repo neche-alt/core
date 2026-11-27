@@ -21,10 +21,7 @@ export {
   validateTelemetryConfig,
   resolveOpenTelemetryConfig,
   DatadogHttpTelemetryExporter,
-  traceContractCall,
-  createOtelApiExporter,
-  createOtelApiExporterFromProviders,
-  OtelApiTelemetryExporter,
+  recordEndpointHealthScore,
 } from "./telemetry";
 export type {
   TelemetryConfig,

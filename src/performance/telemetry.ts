@@ -580,6 +580,27 @@ export function recordCacheHit(
 }
 
 /**
+ * Records the health score for an endpoint as telemetry metrics (#147).
+ *
+ * Emits:
+ *  - `endpoint.health_score`  histogram (the composite 0–1 score)
+ *  - `endpoint.success_rate`  histogram (rolling success rate)
+ *  - `endpoint.p95_latency_ms` histogram (p95 latency estimate)
+ *
+ * No-op when telemetry is uninitialized.
+ */
+export function recordEndpointHealthScore(
+  url: string,
+  score: { score: number; successRate: number; p95LatencyMs: number },
+): void {
+  if (!activeManager) return;
+  const attrs = { endpoint: url };
+  activeManager.recordHistogram("endpoint.health_score", score.score, attrs);
+  activeManager.recordHistogram("endpoint.success_rate", score.successRate, attrs);
+  activeManager.recordHistogram("endpoint.p95_latency_ms", score.p95LatencyMs, attrs, "ms");
+}
+
+/**
  * Returns aggregated metric summaries (duration percentiles, counts) from the active manager.
  * Emits a console warning if called before `initTelemetry()` (at most once per session).
  */
@@ -603,322 +624,25 @@ export function getTelemetrySpans(): SpanData[] {
   return activeManager.getExportedSpans();
 }
 
-// ─── OpenTelemetry JS API bridge (#155) ──────────────────────────────────────
-//
-// The adapter below forwards the SDK's vendor-agnostic spans and metrics to
-// the *official* @opentelemetry/api TracerProvider / MeterProvider a host
-// application has configured, so operators can ship Sorokit telemetry to any
-// standard OTel-compatible backend (Jaeger, Tempo, Prometheus, Datadog Agent,
-// …) without a custom bridge.
-//
-// @opentelemetry/api is an OPTIONAL peer dependency. It is loaded with a
-// *runtime* dynamic import (the module specifier is a variable, not a string
-// literal), so TypeScript and bundlers never resolve it statically. Consumers
-// who never call `createOtelApiExporter` therefore pay no bundle cost and the
-// package is tree-shaken when unused. The local interfaces below mirror only
-// the small slice of the @opentelemetry/api surface this adapter drives, so
-// the file compiles whether or not the package is installed.
-
-/** Numeric span kinds as defined by the OpenTelemetry trace data model. */
-const OTEL_SPAN_KIND_INTERNAL = 0;
-const OTEL_SPAN_KIND_SERVER = 1;
-const OTEL_SPAN_KIND_CLIENT = 2;
-const OTEL_SPAN_KIND_PRODUCER = 3;
-const OTEL_SPAN_KIND_CONSUMER = 4;
-
-/** Numeric span status codes as defined by the OpenTelemetry trace data model. */
-const OTEL_SPAN_STATUS_UNSET = 0;
-const OTEL_SPAN_STATUS_OK = 1;
-const OTEL_SPAN_STATUS_ERROR = 2;
-
-function mapSpanKind(kind: SpanKind): number {
-  switch (kind) {
-    case "server":
-      return OTEL_SPAN_KIND_SERVER;
-    case "client":
-      return OTEL_SPAN_KIND_CLIENT;
-    case "producer":
-      return OTEL_SPAN_KIND_PRODUCER;
-    case "consumer":
-      return OTEL_SPAN_KIND_CONSUMER;
-    case "internal":
-    default:
-      return OTEL_SPAN_KIND_INTERNAL;
-  }
-}
-
-function mapSpanStatus(code: SpanStatusCode): number {
-  switch (code) {
-    case "ok":
-      return OTEL_SPAN_STATUS_OK;
-    case "error":
-      return OTEL_SPAN_STATUS_ERROR;
-    case "unset":
-    default:
-      return OTEL_SPAN_STATUS_UNSET;
-  }
+/**
+ * Records the current transaction queue depth as a gauge metric
+ * (`transaction.queue.depth`). No-op when telemetry is uninitialized.
+ */
+export function recordQueueDepth(
+  depth: number,
+  attributes?: Record<string, unknown>,
+): void {
+  activeManager?.recordCounter("transaction.queue.depth", depth, attributes);
 }
 
 /**
- * Minimal structural shape of an official @opentelemetry/api `Span` this
- * adapter drives. Only the methods we call are declared.
+ * Records a transaction's queue wait time as a histogram metric
+ * (`transaction.queue.wait_ms`). No-op when telemetry is uninitialized.
  */
-interface OtelApiSpan {
-  setAttribute(key: string, value: unknown): OtelApiSpan;
-  addEvent(name: string, attributes?: Record<string, unknown> | undefined): OtelApiSpan;
-  setStatus(status: { code: number; message?: string | undefined }): OtelApiSpan;
-  end(endTime?: number | undefined): void;
+export function recordQueueWaitTime(
+  waitMs: number,
+  attributes?: Record<string, unknown>,
+): void {
+  activeManager?.recordHistogram("transaction.queue.wait_ms", waitMs, attributes, "ms");
 }
-
-/** Minimal structural shape of an official @opentelemetry/api `Tracer`. */
-interface OtelApiTracer {
-  startSpan(
-    name: string,
-    options?:
-      | {
-          kind?: number | undefined;
-          attributes?: Record<string, unknown> | undefined;
-          startTime?: number | undefined;
-        }
-      | undefined,
-  ): OtelApiSpan;
-}
-
-/** Minimal structural shape of an official @opentelemetry/api `Counter`. */
-interface OtelApiCounter {
-  add(value: number, attributes?: Record<string, unknown> | undefined): void;
-}
-
-/** Minimal structural shape of an official @opentelemetry/api `Histogram`. */
-interface OtelApiHistogram {
-  record(value: number, attributes?: Record<string, unknown> | undefined): void;
-}
-
-/** Minimal structural shape of an official @opentelemetry/api `Meter`. */
-interface OtelApiMeter {
-  createCounter(
-    name: string,
-    options?:
-      | { description?: string | undefined; unit?: string | undefined }
-      | undefined,
-  ): OtelApiCounter;
-  createHistogram(
-    name: string,
-    options?:
-      | { description?: string | undefined; unit?: string | undefined }
-      | undefined,
-  ): OtelApiHistogram;
-}
-
-/** The slice of the @opentelemetry/api module this adapter consumes. */
-interface OtelApiModule {
-  trace: {
-    getTracer(name: string, version?: string | undefined): OtelApiTracer;
-  };
-  metrics: {
-    getMeter(name: string, version?: string | undefined): OtelApiMeter;
-  };
-}
-
-/** Options shared by {@link createOtelApiExporter} and
- * {@link createOtelApiExporterFromProviders}. */
-export interface OtelApiExporterOptions {
-  /** Logical service name; used as the tracer/meter name. */
-  serviceName: string;
-  /** Service version, forwarded to `getTracer`/`getMeter`. */
-  serviceVersion?: string | undefined;
-}
-
-/**
- * Bridges the SDK's internal spans and metrics to an official
- * @opentelemetry/api `TracerProvider` and `MeterProvider`.
- *
- * Construct it through {@link createOtelApiExporter} (which dynamically loads
- * `@opentelemetry/api`), or — when you already hold tracer/meter instances —
- * through {@link createOtelApiExporterFromProviders}. Then pass the instance
- * to `initTelemetry` via the `customExporter` config field.
- *
- * SDK spans are replayed as real OTel spans (name, kind, attributes, events,
- * status, end time). SDK counters map to OTel counters and SDK histograms map
- * to OTel histograms. Gauges have no synchronous equivalent in the stable
- * @opentelemetry/api metrics surface and are intentionally not forwarded —
- * the acceptance criteria scope this adapter to counters and histograms.
- */
-export class OtelApiTelemetryExporter implements TelemetryExporter {
-  private readonly tracer: OtelApiTracer;
-  private readonly meter: OtelApiMeter;
-  private readonly serviceName: string | undefined;
-  private readonly counters = new Map<string, OtelApiCounter>();
-  private readonly histograms = new Map<string, OtelApiHistogram>();
-
-  constructor(tracer: OtelApiTracer, meter: OtelApiMeter, serviceName?: string) {
-    this.tracer = tracer;
-    this.meter = meter;
-    this.serviceName = serviceName;
-  }
-
-  /** The service name this exporter reports as, if any. */
-  public getServiceName(): string | undefined {
-    return this.serviceName;
-  }
-
-  public exportSpans(spans: SpanData[]): void {
-    for (const span of spans) {
-      const otelSpan = this.tracer.startSpan(span.name, {
-        kind: mapSpanKind(span.kind),
-        attributes: span.attributes,
-        ...(span.startTime !== undefined ? { startTime: span.startTime } : {}),
-      });
-      for (const [key, value] of Object.entries(span.attributes)) {
-        otelSpan.setAttribute(key, value);
-      }
-      for (const event of span.events) {
-        otelSpan.addEvent(event.name, event.attributes);
-      }
-      otelSpan.setStatus({
-        code: mapSpanStatus(span.status.code),
-        ...(span.status.description !== undefined
-          ? { message: span.status.description }
-          : {}),
-      });
-      otelSpan.end(span.endTime);
-    }
-  }
-
-  public exportMetrics(metrics: OtelMetricRecord[]): void {
-    for (const metric of metrics) {
-      if (metric.type === "counter") {
-        const counter = this.getOrCreateCounter(metric);
-        counter.add(metric.value, metric.attributes);
-      } else if (metric.type === "histogram") {
-        const histogram = this.getOrCreateHistogram(metric);
-        histogram.record(metric.value, metric.attributes);
-      }
-      // Gauges are intentionally not bridged: the stable @opentelemetry/api
-      // metrics surface exposes only *observable* gauges (callback-driven),
-      // which do not fit a push-based exporter. Counters and histograms — the
-      // SDK's primary metric instruments — are fully mapped above.
-    }
-  }
-
-  private metricOptions(
-    metric: OtelMetricRecord,
-  ): { description?: string | undefined; unit?: string | undefined } {
-    return {
-      ...(metric.description !== undefined ? { description: metric.description } : {}),
-      ...(metric.unit !== undefined ? { unit: metric.unit } : {}),
-    };
-  }
-
-  private getOrCreateCounter(metric: OtelMetricRecord): OtelApiCounter {
-    const existing = this.counters.get(metric.name);
-    if (existing) return existing;
-    const counter = this.meter.createCounter(metric.name, this.metricOptions(metric));
-    this.counters.set(metric.name, counter);
-    return counter;
-  }
-
-  private getOrCreateHistogram(metric: OtelMetricRecord): OtelApiHistogram {
-    const existing = this.histograms.get(metric.name);
-    if (existing) return existing;
-    const histogram = this.meter.createHistogram(metric.name, this.metricOptions(metric));
-    this.histograms.set(metric.name, histogram);
-    return histogram;
-  }
-}
-
-/**
- * Builds an {@link OtelApiTelemetryExporter} from `Tracer` and `Meter`
- * instances you already hold. Use this when your application has already
- * configured a global `TracerProvider` / `MeterProvider` (e.g. via
- * `@opentelemetry/sdk-node`) and you want to forward SDK telemetry into it
- * without an extra dynamic import of `@opentelemetry/api`.
- */
-export function createOtelApiExporterFromProviders(
-  tracer: OtelApiTracer,
-  meter: OtelApiMeter,
-  options?: OtelApiExporterOptions,
-): OtelApiTelemetryExporter {
-  return new OtelApiTelemetryExporter(tracer, meter, options?.serviceName);
-}
-
-/**
- * Dynamically loads the official `@opentelemetry/api` package and builds an
- * {@link OtelApiTelemetryExporter} that forwards the SDK's spans and metrics
- * to the host-configured OTel `TracerProvider` / `MeterProvider`.
- *
- * `@opentelemetry/api` is an OPTIONAL peer dependency. It is imported
- * dynamically, so this call — and the package itself — is tree-shaken from
- * bundles that never invoke it. If the package is not installed (or fails to
- * load), this returns an `error` result instead of throwing, so callers can
- * fall back to another exporter or leave telemetry disabled.
- *
- * @example
- * const exporter = await createOtelApiExporter({ serviceName: "my-app" });
- * if (exporter.status === "ok") {
- *   initTelemetry({ serviceName: "my-app", customExporter: exporter.data });
- * }
- */
-export async function createOtelApiExporter(
-  options: OtelApiExporterOptions,
-): Promise<SorokitResult<OtelApiTelemetryExporter>> {
-  let api: OtelApiModule;
-  try {
-    api = await __otelApiLoader.load();
-  } catch (cause) {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "Failed to load @opentelemetry/api. Install it (npm install @opentelemetry/api) and register a TracerProvider/MeterProvider before enabling the OTel exporter, or pass a pre-built exporter via `customExporter`.",
-      cause,
-    );
-  }
-  return buildOtelApiExporter(api, options);
-}
-
-function buildOtelApiExporter(
-  api: OtelApiModule,
-  options: OtelApiExporterOptions,
-): SorokitResult<OtelApiTelemetryExporter> {
-  if (!api || typeof api !== "object") {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "@opentelemetry/api loaded an unexpected value; ensure @opentelemetry/api >= 1.0 is installed.",
-    );
-  }
-  const traceApi = api.trace;
-  const metricsApi = api.metrics;
-  if (!traceApi || typeof traceApi.getTracer !== "function") {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "@opentelemetry/api did not expose a trace API. Ensure @opentelemetry/api >= 1.0 is installed and a TracerProvider is registered.",
-    );
-  }
-  if (!metricsApi || typeof metricsApi.getMeter !== "function") {
-    return err(
-      SorokitErrorCode.INVALID_CONFIG,
-      "@opentelemetry/api did not expose a metrics API. Ensure @opentelemetry/api >= 1.0 is installed and a MeterProvider is registered.",
-    );
-  }
-  const tracer = traceApi.getTracer(options.serviceName, options.serviceVersion);
-  const meter = metricsApi.getMeter(options.serviceName, options.serviceVersion);
-  return ok(new OtelApiTelemetryExporter(tracer, meter, options.serviceName));
-}
-
-/**
- * Loads the `@opentelemetry/api` module on demand. The specifier is a runtime
- * variable (not a string literal) so TypeScript and bundlers never resolve it
- * statically — this is what keeps `@opentelemetry/api` an optional,
- * tree-shakeable peer dependency. Tests override `load` to inject a fake API.
- * @internal
- */
-export const __otelApiLoader: { load(): Promise<OtelApiModule> } = {
-  async load(): Promise<OtelApiModule> {
-    // A non-literal specifier makes `import()` resolve at runtime only and
-    // return `Promise<any>`, which is why no type declaration for
-    // "@opentelemetry/api" is required for this file to compile.
-    const specifier = "@opentelemetry/api";
-    const mod = (await import(/* @vite-ignore */ specifier)) as unknown as OtelApiModule;
-    return mod;
-  },
-};
 
