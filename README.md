@@ -176,7 +176,20 @@ The [hosted API reference](https://tochukwujustice.github.io/core/) is published
 GitHub Actions after a successful deployment. It documents the public exports from
 `src/index.ts`, including parameter descriptions, return values, and examples.
 
-Generate and view it locally:
+### Task-Based Navigation
+
+If you are looking to accomplish a specific goal, jump straight to the relevant task guide and recipes:
+
+| Task | Primary API | Key Recipes & Guides |
+| :--- | :--- | :--- |
+| **Connect Wallet** | `client.wallet.connect`, `FreighterAdapter` | [Key rotation](docs/recipes/08-key-rotation.md), [Account recovery](docs/recipes/10-account-recovery.md) |
+| **Check Balances** | `client.account.get`, `client.account.stream` | [Trustlines](docs/recipes/11-trustline-management.md), [Balance alerts](docs/recipes/13-balance-alerts-streaming.md) |
+| **Send Payments** | `client.transaction.buildPayment`, `submit` | [Fee estimation](docs/recipes/15-fee-estimation.md), [Batch payment](docs/recipes/05-batch-payment.md), [Memos](docs/recipes/09-payment-with-memo.md) |
+| **Smart Contracts** | `client.soroban.read`, `invoke`, `buildContractDeploy` | [Soroban invoke](docs/recipes/04-soroban-invoke.md), [Deployment](docs/recipes/14-contract-deployment.md), [NFT minting](docs/recipes/20-nft-minting.md) |
+| **DEX & Swaps** | `client.transaction.buildPathPayment` | [Atomic swap](docs/recipes/03-dex-atomic-swap.md), [DEX routing](docs/recipes/19-dex-routing.md), [Offers](docs/recipes/07-offer-management.md) |
+| **Multi-Sig** | `MultiSigContractExecution` | [Multi-sig approval](docs/recipes/01-multisig-approval.md) |
+
+Generate and view full TypeDoc reference locally:
 
 ```bash
 npm ci --legacy-peer-deps
