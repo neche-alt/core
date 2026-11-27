@@ -88,6 +88,15 @@ export interface ExportTransactionHistoryOptions {
 export const FALLBACK_PASSPHRASE = "Test SDF Network ; September 2015";
 export const HORIZON_PAGE_LIMIT = 200;
 
+/**
+ * Hard safety bound on the number of Horizon pages fetched in a single
+ * auto-pagination sweep. Real account history is far smaller than this; the
+ * bound only caps pathological or misbehaving endpoints so a broken cursor
+ * (or an endpoint that never returns a partial final page) cannot loop
+ * forever.
+ */
+export const HORIZON_MAX_PAGES = 1000;
+
 export function parseTimestamp(value: string | Date | undefined): number | undefined {
   if (value === undefined || value === null) return undefined;
   const ts = value instanceof Date ? value.getTime() : Date.parse(value);
@@ -411,6 +420,7 @@ export async function exportTransactionHistory(
     const server = createHorizonServer(horizonUrl);
     let cursor: string | undefined;
     let keepFetching = true;
+    let pagesFetched = 0;
 
     while (keepFetching) {
       let builder = server
@@ -424,6 +434,8 @@ export async function exportTransactionHistory(
       }
 
       const page = await builder.call();
+
+      pagesFetched += 1;
 
       if (!page.records || page.records.length === 0) {
         break;
@@ -528,7 +540,16 @@ export async function exportTransactionHistory(
       if (!lastRecord || !lastRecord.paging_token || page.records.length < HORIZON_PAGE_LIMIT) {
         break;
       }
-      cursor = lastRecord.paging_token;
+      // Bounded iteration (#84): cap the sweep and stop when the cursor does
+      // not advance — a repeated cursor would otherwise loop forever.
+      if (pagesFetched >= HORIZON_MAX_PAGES) {
+        break;
+      }
+      const nextCursor = lastRecord.paging_token;
+      if (nextCursor === cursor) {
+        break;
+      }
+      cursor = nextCursor;
     }
 
     if (format === "json") {

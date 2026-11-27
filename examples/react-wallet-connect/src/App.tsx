@@ -15,11 +15,7 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
-import { NetworkBadge, MainnetConfirmDialog, useMainnetGuard } from "./NetworkBadge";
-import type { NetworkType } from "../../../src/network/config";
-
-// Active network — change to "mainnet" to see the mainnet confirmation guard.
-const ACTIVE_NETWORK: NetworkType = "testnet";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 const kit = new StellarWalletsKit({
@@ -153,7 +149,20 @@ export default function App() {
 
       {/* Feedback */}
       {error && (
-        <p style={{ marginTop: "1rem", color: "#8a1c1c", background: "#fdecec", padding: "0.75rem", borderRadius: 6 }}>
+        <p
+          role="alert"
+          style={{
+            marginTop: "1rem",
+            color: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#7a4f00"
+              : "#8a1c1c",
+            background: error.startsWith("You declined") || error.startsWith("Connection declined")
+              ? "#fff8e1"
+              : "#fdecec",
+            padding: "0.75rem",
+            borderRadius: 6,
+          }}
+        >
           {error}
         </p>
       )}
@@ -162,6 +171,13 @@ export default function App() {
           {status}
         </p>
       )}
+
+      {/*
+        Opt-in SDK diagnostics panel — debug only.
+        Hidden in production: set show={process.env.NODE_ENV === "development"}
+        or remove the prop to hide it entirely. Never shows secrets.
+      */}
+      <DiagnosticsPanel show={true} network="testnet" />
     </div>
   );
 }

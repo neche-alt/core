@@ -28,3 +28,24 @@ The core application only interacts with the `WalletAdapter` interface, while in
 *   Adding a new wallet requires writing a new adapter that conforms to the interface.
 *   Wallet-specific bugs are isolated to their respective adapter modules.
 *   The frontend can dynamically load adapters based on user preference or detection mechanisms.
+
+## Contract Testing & Conformance
+
+To ensure every wallet provider implements uniform lifecycle, error, and cleanup behaviors, Sorokit Core exports a reusable contract test suite from `sorokit-core/testing`:
+
+```ts
+import { defineWalletAdapterContractTests } from "sorokit-core/testing";
+
+defineWalletAdapterContractTests({
+  name: "MyCustomWalletAdapter",
+  createAvailableAdapter: () => new MyCustomWalletAdapter(provider),
+  createUnavailableAdapter: () => new MyCustomWalletAdapter(),
+  createRejectingAdapter: () => new MyCustomWalletAdapter(rejectingProvider),
+});
+```
+
+This verifies:
+1. **Success**: Availability check, `connect()` returning an Ed25519 G-key, `signTransaction()` returning signed XDR, and idempotent `disconnect()`.
+2. **Rejection**: Mapping user rejections into `SorokitErrorCode.WALLET_SIGN_REJECTED` or `WALLET_CONNECT_FAILED`.
+3. **Missing Provider**: Non-throwing, structured error results (`WALLET_BROWSER_ONLY`, `WALLET_NOT_FOUND`).
+4. **Account & Cleanup**: Multi-account management and safe disconnection.
