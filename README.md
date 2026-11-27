@@ -1156,7 +1156,9 @@ Pull requests are welcome. For significant changes, please open an issue first t
 
 ## Recipes and Cookbook
 
-The [`docs/recipes/`](docs/recipes/) directory contains 15 practical, copy-paste-ready recipes for common Stellar and Soroban patterns. Each recipe includes a problem statement, working code, and testing tips.
+The [`docs/recipes/`](docs/recipes/) directory contains practical, copy-paste-ready recipes for common Stellar and Soroban patterns. Each recipe includes a problem statement, working code, and testing tips.
+
+For an end-to-end guide on typed argument handling, read/write pipelines, auth simulation, and failure recovery, see the [Soroban Contract Invocation Cookbook](docs/recipes/soroban-invocation-cookbook.md) and runnable example in [examples/contract-invocation-recipe.ts](examples/contract-invocation-recipe.ts).
 
 | # | Recipe | Use case |
 | --- | --- | --- |

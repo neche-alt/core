@@ -16,6 +16,7 @@ Branch on `result.status` — never wrap these calls in `try/catch`.
 | 2 | [Escrow with timelock](./02-escrow-timelock.md) | Funds held until a future timestamp |
 | 3 | [DEX atomic swap](./03-dex-atomic-swap.md) | Swap two assets atomically on the Stellar DEX |
 | 4 | [Soroban contract invoke with error handling](./04-soroban-invoke.md) | Invoke a smart contract with full error recovery |
+| â€” | [Soroban Contract Invocation Cookbook](./soroban-invocation-cookbook.md) | Comprehensive guide for reading, simulating, authorizing, and submitting contract calls |
 | 5 | [Batch payment with progress tracking](./05-batch-payment.md) | Send many payments, track success/failure per item |
 | 6 | [Portfolio rebalancing](./06-portfolio-rebalancing.md) | Read balances and swap to hit target allocations |
 | 7 | [Offer management on DEX](./07-offer-management.md) | Create, update, and cancel limit orders |
