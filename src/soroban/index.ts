@@ -122,9 +122,8 @@ export type {
 } from "./contractMetadataCompatibility";
 export {
   decodeContractError,
-  decodeContractErrorSafe,
-  createContractErrorMap,
-  mergeContractErrorMaps,
+  decodeNestedContractFailure,
+  formatNestedContractFailure,
   DEFAULT_CONTRACT_ERROR_MAP,
   FACTORY_CONTRACT_ERRORS,
   ROUTER_CONTRACT_ERRORS,
@@ -136,6 +135,8 @@ export type {
   ContractErrorMap,
   ContractErrorDecodeOptions,
   DecodedContractError,
+  NestedContractFailureNode,
+  NestedContractFailureTree,
 } from "./contractErrors";
 export { ContractInteractionBuilder, createContractInteractionBuilder } from "./contractInteractionBuilder";
 export type {
@@ -148,12 +149,24 @@ export type {
   BuilderStateUnsubscribe,
 } from "./contractInteractionBuilder";
 export { validateContractAbi } from "./validateContractAbi";
+
+// ─── Simulation failure display (#137) ────────────────────────────────────────
+export { buildSimulationFailureDisplay } from "./simulationErrorDisplay";
+export type {
+  SimulationFailureDisplay,
+  SimulationFailureArg,
+} from "./simulationErrorDisplay";
 export { SorobanSimulator } from "./simulator";
 export type {
   SimulatedMethodResult,
   SorobanSimulatorOptions,
 } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
+export {
+  validateContractWasm,
+  MAX_WASM_SIZE,
+} from "./validateContractWasm";
+export type { ValidatedContractWasm } from "./validateContractWasm";
 export {
   validateDeployConfig,
   collectDeployConfigIssues,
@@ -178,9 +191,11 @@ export {
   compareSnapshots,
   listSnapshots,
   clearSnapshots,
+  MAX_SNAPSHOT_STATE_BYTES,
+  SnapshotSizeError,
 } from "./contractSnapshot";
 export { calculateStorageRent, renewContractStorage } from "./storageExpiration";
-export type { ContractSnapshot, SnapshotDiff } from "./contractSnapshot";
+export type { ContractSnapshot, SnapshotDiff, SnapshotRedactOptions } from "./contractSnapshot";
 export { analyzeCallOptimization } from "./callOptimization";
 export type {
   CallOptimizationReport,
@@ -601,3 +616,16 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./upgradeDetection";
+
+// ─── Contract spec compatibility (#40) ────────────────────────────────────────
+export {
+  compareContractSpecs,
+  validateContractSpec,
+} from "./contractSpecCompatibility";
+export type {
+  ContractSpec,
+  ContractSpecFunction,
+  SpecCompatibilityReport,
+  SpecCompatibilityChange,
+  SpecCompatibilityStatus,
+} from "./contractSpecCompatibility";

@@ -28,6 +28,15 @@ export { NETWORK_DEFAULTS } from "./config";
 // within the codebase — they delegate to resolveNetwork
 export { getNetwork } from "./getNetwork";
 export { setNetwork } from "./setNetwork";
+export type { SetNetworkOptions } from "./setNetwork";
+
+// ─── Browser-safe network config validator (#132) ──────────────────────────
+export { validateNetworkConfig } from "./validateNetworkConfig";
+export type {
+  NetworkConfigField,
+  NetworkConfigIssue,
+  NetworkConfigValidationResult,
+} from "./validateNetworkConfig";
 
 export { NetworkSwitcher } from "./networkSwitcher";
 export type { CustomNetwork, NetworkOption, NetworkInfo, NetworkStatus, NetworkSwitchListener, NetworkStatusListener, NetworkSwitchUnsubscribe, NetworkSwitcherConfig } from "./networkSwitcher";
@@ -188,6 +197,7 @@ export {
   getEndpointPool,
   createFailoverFetch,
   validateEndpointList,
+  selectByScore,
 } from "./endpointFailover";
 export type {
   EndpointHealth,
@@ -207,4 +217,9 @@ export type {
   Endpoint,
   EndpointHealthResult,
   EndpointRegistryConfig,
+  EndpointHealthScore,
 } from "./endpointRegistry";
+
+// ─── Request Deduplication (#76) ─────────────────────────────────────────────
+export { createRequestDeduplicator } from "./requestDedup";
+export type { DedupConfig, RequestDeduplicator } from "./requestDedup";
