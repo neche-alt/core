@@ -13,8 +13,10 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/dist/**", "**/.git/**", "packages/**"],
     coverage: {
       // #570: Coverage enforcement — thresholds prevent silent regression.
+      // #117: Extended reporters generate HTML and JSON artifacts for PR review.
       enabled: true,
       provider: "v8",
+      reportsDirectory: "./coverage",
       // Measure coverage only over production source files.
       include: ["src/**/*.ts"],
       exclude: [
@@ -29,7 +31,7 @@ export default defineConfig({
         branches: 75,
         statements: 80,
       },
-      reporter: ["text", "lcov", "json-summary"],
+      reporter: ["text", "lcov", "json-summary", "json", "html"],
     },
   },
 });
