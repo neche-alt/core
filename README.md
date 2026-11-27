@@ -301,6 +301,30 @@ client.transaction.validateTransactionOffline(transactionXdr); // → SorokitRes
 for await (const result of client.transaction.stream(publicKey)) {
   if (result.status === "ok") console.log(result.data.transactions);
 }
+
+// Batch submission — submit many signed XDRs at once
+import { submitBatch, suggestRetryStrategy, getTransactionStatus } from "sorokit-core/transaction";
+
+const batch = await submitBatch([xdr1, xdr2, xdr3], {
+  horizonUrl,
+  networkPassphrase,
+  mode: "sequential", // or "parallel"
+});
+
+if (batch.status === "ok") {
+  // Per-item failures never abort the whole batch. Check each entry individually.
+  for (const [i, tx] of batch.data.transactions.entries()) {
+    if (tx.status === "failed") console.error(`Item ${i} failed: ${tx.error}`);
+  }
+
+  // Inspect one item by index
+  const item = getTransactionStatus(batch.data, 0);
+
+  // Get a retry strategy based on the mix of successes and failures
+  const { data: retry } = suggestRetryStrategy(batch.data);
+  // retry.strategy: "none" | "retry_failed" | "retry_all"
+  // retry.failedIndices: number[] — indices of the failed items
+}
 ```
 
 #### Network-aware fee estimation
