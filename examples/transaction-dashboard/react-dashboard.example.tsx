@@ -4,6 +4,10 @@
  * Copy this pattern into your app. It subscribes to a
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
+ *
+ * For streaming a live, growing activity feed into a virtualized list (with
+ * cursor-based resume and backpressure handling), see:
+ * `examples/transaction-dashboard/virtualized-activity-feed.example.tsx`
  */
 import { useEffect, useState } from "react";
 import {
