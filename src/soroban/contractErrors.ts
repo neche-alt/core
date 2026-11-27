@@ -344,3 +344,129 @@ export function decodeContractError(
     raw: error,
   };
 }
+
+// ─── Nested contract failure traversal (#52) ─────────────────────────────────
+
+/**
+ * A single node in a nested contract call failure tree.
+ */
+export interface NestedContractFailureNode {
+  /** Depth of this node in the call tree (root = 0). */
+  depth: number;
+  /** Decoded error information for this invocation. */
+  decoded: DecodedContractError;
+  /** Child failures caused by sub-contract calls from this invocation. */
+  children: NestedContractFailureNode[];
+}
+
+/**
+ * Result of traversing a nested contract failure tree.
+ */
+export interface NestedContractFailureTree {
+  /** Root failure (the top-level invocation that failed). */
+  root: NestedContractFailureNode;
+  /** Total number of failure nodes across the full tree. */
+  totalFailures: number;
+  /**
+   * Flat list of all nodes ordered depth-first (root first, then children).
+   * Useful for rendering a linear log or finding the deepest failure.
+   */
+  flat: NestedContractFailureNode[];
+}
+
+/**
+ * Shape that many Soroban RPC simulation error responses follow.
+ * The `causes` array holds sub-invocation failures.
+ */
+interface SimulationFailureLike {
+  message?: string;
+  code?: unknown;
+  errorCode?: unknown;
+  causes?: unknown[];
+  events?: unknown[];
+  /** Stellar SDK HostError exposes codes() */
+  codes?: () => unknown;
+}
+
+/**
+ * Decode a nested contract call failure tree from a simulation or invocation error.
+ *
+ * Many Soroban RPC errors embed sub-invocation failures via a `causes` array.
+ * This function decodes the top-level failure and all nested causes recursively,
+ * preserving the original `raw` value at every node so no diagnostic information
+ * is lost.
+ *
+ * @param error     - Raw error from an RPC simulation or invocation.
+ * @param errorMap  - Custom error map; defaults to the bundled factory/router map.
+ *
+ * @example
+ * ```ts
+ * const tree = decodeNestedContractFailure(simulationError);
+ * for (const node of tree.flat) {
+ *   console.log("  ".repeat(node.depth) + node.decoded.message);
+ * }
+ * ```
+ *
+ * (issue #52)
+ */
+export function decodeNestedContractFailure(
+  error: unknown,
+  errorMap: ContractErrorMap = DEFAULT_CONTRACT_ERROR_MAP,
+): NestedContractFailureTree {
+  const root = buildNode(error, errorMap, 0);
+  const flat: NestedContractFailureNode[] = [];
+  collectFlat(root, flat);
+  return { root, totalFailures: flat.length, flat };
+}
+
+function buildNode(
+  error: unknown,
+  errorMap: ContractErrorMap,
+  depth: number,
+): NestedContractFailureNode {
+  const decoded = decodeContractError(error, errorMap);
+  const children: NestedContractFailureNode[] = [];
+
+  if (error !== null && typeof error === "object") {
+    const failure = error as SimulationFailureLike;
+    if (Array.isArray(failure.causes)) {
+      for (const cause of failure.causes) {
+        children.push(buildNode(cause, errorMap, depth + 1));
+      }
+    }
+  }
+
+  return { depth, decoded, children };
+}
+
+function collectFlat(
+  node: NestedContractFailureNode,
+  out: NestedContractFailureNode[],
+): void {
+  out.push(node);
+  for (const child of node.children) {
+    collectFlat(child, out);
+  }
+}
+
+/**
+ * Format a nested contract failure tree as a human-readable indented string.
+ * Each line shows the depth, the decoded message, and (when available) the code.
+ *
+ * @example
+ * ```ts
+ * const tree = decodeNestedContractFailure(error);
+ * console.log(formatNestedContractFailure(tree));
+ * // [0] ROUTER_SLIPPAGE_EXCEEDED: The realized swap price exceeded the allowed slippage tolerance.
+ * //   [1] ROUTER_INSUFFICIENT_LIQUIDITY: Insufficient liquidity in one or more pools along the route.
+ * ```
+ */
+export function formatNestedContractFailure(tree: NestedContractFailureTree): string {
+  return tree.flat
+    .map((node) => {
+      const indent = "  ".repeat(node.depth);
+      const code = node.decoded.code ? `${node.decoded.code}: ` : "";
+      return `${indent}[${node.depth}] ${code}${node.decoded.message}`;
+    })
+    .join("\n");
+}
