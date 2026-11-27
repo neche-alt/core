@@ -570,16 +570,74 @@ const _inflightRequests = new Map<string, Promise<unknown>>();
  *   return deduplicateRequest(`getAccount:${key}`, () => fetchAccount(url, key));
  * }
  */
-export function deduplicateRequest<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const existing = _inflightRequests.get(key) as Promise<T> | undefined;
-  if (existing) return existing;
+export function deduplicateRequest<T>(
+  key: string,
+  fn: (signal?: AbortSignal) => Promise<T>,
+  options?: { signal?: AbortSignal },
+): Promise<T> {
+  const callerSignal = options?.signal;
+  if (callerSignal?.aborted) {
+    const reason =
+      callerSignal.reason ??
+      (typeof DOMException !== "undefined"
+        ? new DOMException("The operation was aborted.", "AbortError")
+        : new Error("Aborted"));
+    return Promise.reject(reason);
+  }
 
-  const promise = fn().finally(() => {
-    _inflightRequests.delete(key);
+  let entry = _inflightRequests.get(key) as Promise<T> | undefined;
+  if (!entry) {
+    entry = Promise.resolve()
+      .then(() => fn(callerSignal))
+      .finally(() => {
+        _inflightRequests.delete(key);
+      });
+    _inflightRequests.set(key, entry);
+  }
+
+  if (!callerSignal) {
+    return entry;
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      if (callerSignal.removeEventListener) {
+        callerSignal.removeEventListener("abort", onAbort);
+      }
+      const reason =
+        callerSignal.reason ??
+        (typeof DOMException !== "undefined"
+          ? new DOMException("The operation was aborted.", "AbortError")
+          : new Error("Aborted"));
+      reject(reason);
+    };
+
+    callerSignal.addEventListener("abort", onAbort, { once: true });
+
+    entry!.then(
+      (val) => {
+        if (!settled) {
+          settled = true;
+          if (callerSignal.removeEventListener) {
+            callerSignal.removeEventListener("abort", onAbort);
+          }
+          resolve(val);
+        }
+      },
+      (err) => {
+        if (!settled) {
+          settled = true;
+          if (callerSignal.removeEventListener) {
+            callerSignal.removeEventListener("abort", onAbort);
+          }
+          reject(err);
+        }
+      },
+    );
   });
-
-  _inflightRequests.set(key, promise);
-  return promise;
 }
 
 /**

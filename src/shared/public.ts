@@ -35,11 +35,12 @@ export {
 } from "./mainnetSafety";
 
 export {
-  captureBenchmarkEnvironment,
-  evaluateBundleBudget,
-  DEFAULT_BUNDLE_BUDGETS,
-} from "./benchmarkEnvironment";
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
 export type {
-  BenchmarkEnvironmentDetails,
-  BundleBudgetDefinition,
-} from "./benchmarkEnvironment";
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";
