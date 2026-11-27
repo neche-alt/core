@@ -230,6 +230,8 @@ export {
   exportTransactionHistory,
   formatTransactionsToCsv,
   formatTransactionsToJson,
+  HORIZON_PAGE_LIMIT,
+  HORIZON_MAX_PAGES,
 } from "./exportTransactionHistory";
 export { validateTransaction, validateTransactionBatch } from "./validateTransaction";
 // ─── Transaction size tracking and early-warning (#858) ───────────────────────

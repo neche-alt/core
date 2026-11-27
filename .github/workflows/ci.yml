@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, develop]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   typecheck:
     name: Typecheck
@@ -20,7 +24,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
@@ -41,7 +52,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
@@ -62,7 +80,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
@@ -85,7 +110,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
@@ -95,6 +127,31 @@ jobs:
 
       - name: Check bundle size
         run: npm run size:check --if-present
+
+  vite-example:
+    name: Vite Example Build
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install --legacy-peer-deps --no-fund
+
+      - name: Build SDK
+        run: npm run build
+
+      - name: Build and analyze vite-minimal example
+        run: node scripts/analyze-consumer-bundle.mjs --ci
 
   security:
     name: Security Audit
@@ -107,10 +164,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps --no-fund
 
-      - name: Run npm audit
-        run: npm audit --audit-level=moderate || true
+      # Blocking check: fail CI on high or critical vulnerabilities.
+      # Severity policy: critical and high severities are blocking; moderate
+      # and low are reported separately via the advisory step below.
+      - name: Audit – fail on high/critical (blocking)
+        run: npm audit --audit-level=high
+
+      # Non-blocking advisory report: surface moderate and low findings for
+      # visibility without breaking the build. The JSON output is printed to
+      # the step log and uploaded as an artifact so it is visible in every PR.
+      - name: Audit – advisory report for moderate/low (non-blocking)
+        run: npm audit --json > audit-advisory-report.json 2>&1 || true
+
+      - name: Upload advisory report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-advisory-report
+          path: audit-advisory-report.json
+          retention-days: 30
