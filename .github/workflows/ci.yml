@@ -128,6 +128,31 @@ jobs:
       - name: Check bundle size
         run: npm run size:check --if-present
 
+  vite-example:
+    name: Vite Example Build
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm install --legacy-peer-deps --no-fund
+
+      - name: Build SDK
+        run: npm run build
+
+      - name: Build and analyze vite-minimal example
+        run: node scripts/analyze-consumer-bundle.mjs --ci
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
