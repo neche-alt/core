@@ -1,12 +1,13 @@
 /**
- * React wallet-connect example — UI layer (#react-wallet-connect).
+ * React wallet-connect example — UI layer (#react-wallet-connect, #104).
  *
  * Renders connect/disconnect, a balance list, and a payment form.
  * All sorokit-core calls are in useSorokit.ts — this file only reads state
  * and calls the callbacks the hook exposes.
  *
- * Accessibility (#107): respects prefers-reduced-motion and
- * prefers-contrast / forced-colors via the helpers in ./a11y.ts.
+ * Localization (#104): every user-visible string comes from `ui` in i18n.ts,
+ * and amounts are formatted with `formatAmount` (Intl.NumberFormat). No
+ * localization dependency is added to the core SDK.
  */
 
 import React, { useState, useEffect } from "react";
@@ -17,11 +18,7 @@ import {
   FreighterModule,
 } from "@creit.tech/stellar-wallets-kit";
 import { useSorokit } from "./useSorokit";
-import {
-  prefersReducedMotion,
-  prefersHighContrast,
-  resolveStatusColor,
-} from "./a11y";
+import { ui, formatAmount } from "./i18n";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
 // In a real app this typically lives in a context provider or module-level singleton.
@@ -149,99 +146,61 @@ export default function App() {
 
       {/* Connection */}
       {!isConnected ? (
-        <button
-          onClick={connect}
-          disabled={loading}
-          style={{ transition: reducedMotion ? "none" : "opacity 0.2s ease" }}
-        >
-          {loading ? "Connecting…" : "Connect Freighter"}
+        <button onClick={connect} disabled={loading}>
+          {loading ? ui.connectingLabel : ui.connectButton}
         </button>
       ) : (
         <div>
           <p>
-            <strong>Connected:</strong>{" "}
-            <CopyAddress address={walletState.publicKey!} />
+            <strong>{ui.connectedLabel}</strong>{" "}
+            <code style={{ wordBreak: "break-all" }}>{walletState.publicKey}</code>
           </p>
           <button onClick={disconnect} disabled={loading} style={{ marginRight: 8 }}>
-            Disconnect
+            {ui.disconnectButton}
           </button>
           <button onClick={refreshBalances} disabled={loading}>
-            Refresh balances
+            {ui.refreshBalancesButton}
           </button>
         </div>
       )}
 
       {/* Balances */}
-      {isConnected && (
-        <section
-          aria-label="Account activity"
-          aria-live="polite"
-          aria-busy={loading}
-          style={{ marginTop: "1.5rem" }}
-        >
-          <h2>Balances</h2>
-          {(() => {
-            const state = deriveActivityState(loading, balances, error, !!isConnected, refreshBalances);
-            if (state.kind === "loading") {
-              return (
-                <p aria-label="Loading account activity" role="status">
-                  Loading…
-                </p>
-              );
-            }
-            if (state.kind === "empty") {
-              return (
-                <p aria-label="No account activity" role="status">
-                  No activity yet
-                </p>
-              );
-            }
-            if (state.kind === "error") {
-              return (
-                <div>
-                  <p style={{ color: "#8a1c1c" }}>{state.message}</p>
-                  <button
-                    aria-label="Retry loading activity"
-                    onClick={state.retry}
-                  >
-                    Retry
-                  </button>
-                </div>
-              );
-            }
-            return (
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left" }}>Asset</th>
-                    <th style={{ textAlign: "right" }}>Balance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {state.balances.map((b) => (
-                    <tr key={`${b.assetCode}-${b.assetIssuer ?? "native"}`}>
-                      <td>{b.assetCode}</td>
-                      <td style={{ textAlign: "right" }}>{b.balance}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            );
-          })()}
-        </section>
+      {balances.length > 0 && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <h2>{ui.balancesHeading}</h2>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left" }}>{ui.assetColumnLabel}</th>
+                <th style={{ textAlign: "right" }}>{ui.balanceColumnLabel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {balances.map((b) => (
+                <tr key={`${b.assetCode}-${b.assetIssuer ?? "native"}`}>
+                  <td>{b.assetCode}</td>
+                  {/* formatAmount uses Intl.NumberFormat for locale-aware rendering */}
+                  <td style={{ textAlign: "right" }}>
+                    {formatAmount(b.balance, b.assetCode)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/* Payment form — only shown when connected */}
       {isConnected && (
         <form onSubmit={handleSend} style={{ marginTop: "1.5rem" }}>
-          <h2>Send XLM</h2>
+          <h2>{ui.sendHeading}</h2>
           <div style={{ marginBottom: "0.75rem" }}>
             <label>
-              Destination
+              {ui.destinationLabel}
               <input
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
-                placeholder="G..."
+                placeholder={ui.destinationPlaceholder}
                 required
                 style={{ display: "block", width: "100%", marginTop: 4 }}
               />
@@ -249,18 +208,18 @@ export default function App() {
           </div>
           <div style={{ marginBottom: "0.75rem" }}>
             <label>
-              Amount (XLM)
+              {ui.amountLabel}
               <input
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                placeholder="10"
+                placeholder={ui.amountPlaceholder}
                 required
                 style={{ display: "block", width: "100%", marginTop: 4 }}
               />
             </label>
           </div>
           <button type="submit" disabled={loading}>
-            {loading ? "Sending…" : "Send"}
+            {loading ? ui.sendingLabel : ui.sendButton}
           </button>
         </form>
       )}

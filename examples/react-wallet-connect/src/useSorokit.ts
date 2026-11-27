@@ -17,6 +17,7 @@ import type { SorokitClient } from "../../../src/client/createSorokitClient";
 import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
 import type { NetworkType } from "../../../src/network/config";
+import { ui } from "./i18n";
 
 export interface PaymentParams {
   destination: string;
@@ -145,7 +146,7 @@ export function useSorokit(
       setError(walletErrorMessage(result.error));
     } else {
       setWalletState(result.data);
-      setStatus("Wallet connected");
+      setStatus(ui.walletConnectedStatus);
 
       // Persist the session so a reload can offer a reconnect prompt.
       await saveSession({
@@ -170,9 +171,7 @@ export function useSorokit(
     if (result.status === "ok") {
       setWalletState(null);
       setBalances([]);
-      setStatus("Wallet disconnected");
-      // Clear persisted session so reload does not offer a stale reconnect.
-      clearSession();
+      setStatus(ui.walletDisconnectedStatus);
     } else {
       setError(result.error.message);
     }
