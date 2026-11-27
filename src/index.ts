@@ -1946,6 +1946,15 @@ export type {
   UpgradeEvent,
   ContractUpgradeDetectionOptions,
 } from "./soroban/upgradeDetection";
+export {
+  checkNetworkCapabilities,
+  preflightDeploymentCapabilities,
+  MIN_SOROBAN_PROTOCOL_VERSION,
+} from "./soroban/networkCapabilities";
+export type {
+  NetworkCapabilities,
+  NetworkCapabilityCheckOptions,
+} from "./soroban/networkCapabilities";
 
 // ─── Account health score and risk assessment (#590) ──────────────────────────
 export {

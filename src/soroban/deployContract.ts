@@ -27,6 +27,8 @@ export interface BuildContractDeployOptions {
   horizonUrl: string;
   networkConfig: ResolvedNetworkConfig;
   salt?: Buffer;
+  /** Whether to bypass network capability preflight checks (default: false) */
+  skipCapabilityPreflight?: boolean;
 }
 
 /**
@@ -68,6 +70,17 @@ export async function buildContractDeploy(
   // section ids, sections that overflow the buffer, and duplicate sections).
   const wasmResult = validateContractWasm(contractCode);
   if (wasmResult.status === "error") return wasmResult;
+
+  // Preflight network capabilities unless explicitly skipped (#54)
+  if (!options.skipCapabilityPreflight) {
+    const capabilityResult = await preflightDeploymentCapabilities({
+      rpcUrl: options.rpcUrl,
+      networkConfig: options.networkConfig,
+    });
+    if (capabilityResult.status === "error") {
+      return capabilityResult;
+    }
+  }
 
   try {
     const rpc = createSorobanServer(options.rpcUrl);

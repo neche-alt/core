@@ -481,14 +481,29 @@ See [docs/nested-contract-failures.md](docs/nested-contract-failures.md) for ful
 
 #### Contract deployment
 
-`buildContractDeploy` validates its configuration before any network call, so a
-missing endpoint or a malformed deployer address fails immediately with an
-`INVALID_CONFIG` error naming every offending field and how to fix it. Call the
-same check directly from a deployment script to fail before you spend a build:
+`buildContractDeploy` validates its configuration before any network call, and runs a network capability preflight (`preflightDeploymentCapabilities`) to verify the endpoint supports Soroban (Protocol 20+) and matches the expected passphrase. If the endpoint is incompatible, it fails immediately with an `UNSUPPORTED_NETWORK` error instead of failing late during simulation.
 
 ```ts
-import { validateDeployConfig, collectDeployConfigIssues } from "sorokit-core";
+import {
+  validateDeployConfig,
+  checkNetworkCapabilities,
+  buildContractDeploy,
+  SorokitErrorCode,
+} from "sorokit-core";
 
+// 1. Preflight network capabilities
+const capCheck = await checkNetworkCapabilities({
+  rpcUrl,
+  expectedPassphrase: networkConfig.networkPassphrase,
+});
+if (capCheck.status === "error") {
+  if (capCheck.error.code === SorokitErrorCode.UNSUPPORTED_NETWORK) {
+    console.error("Endpoint does not support Soroban operations:", capCheck.error.message);
+  }
+  process.exit(1);
+}
+
+// 2. Validate configuration
 const check = validateDeployConfig({
   rpcUrl,
   horizonUrl,
@@ -497,18 +512,14 @@ const check = validateDeployConfig({
 });
 if (check.status === "error") {
   console.error(check.error.message);
-  // Deployment configuration is invalid — 2 problems found:
-  //   1. rpcUrl — rpcUrl is missing. Fix: Set rpcUrl to the Soroban RPC endpoint …
-  //   2. deployer — deployer is not a valid Stellar public key: "GNOPE". Fix: …
   process.exit(1);
 }
 
-// Or render the issues yourself — each has { field, reason, hint }
-const issues = collectDeployConfigIssues({
+// 3. Build contract deployment (runs preflight automatically)
+const deployResult = await buildContractDeploy(wasmBuffer, deployer, {
   rpcUrl,
   horizonUrl,
   networkConfig,
-  deployer,
 });
 ```
 
