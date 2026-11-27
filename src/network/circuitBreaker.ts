@@ -5,16 +5,21 @@
  * called immediately (fail-fast) instead of retrying for 30+ seconds.
  *
  * State machine:
- *   CLOSED  ──(5 consecutive transient failures)──▶  OPEN
- *   OPEN    ──(60 s recovery window)───▶  HALF_OPEN
- *   HALF_OPEN ──(probe succeeds)─────▶  CLOSED
- *   HALF_OPEN ──(probe fails)────────▶  OPEN
+ *   CLOSED    ──(failureThreshold consecutive transient failures)──▶  OPEN
+ *   OPEN      ──(recoveryWindowMs + jitter)──────────────────────▶  HALF_OPEN
+ *   HALF_OPEN ──(successThreshold consecutive probe successes)───▶  CLOSED
+ *   HALF_OPEN ──(any probe failure)──────────────────────────────▶  OPEN
+ *
+ * Half-open state allows up to halfOpenMaxProbes concurrent probe requests.
+ * Jittered cooldown prevents synchronized re-opening across endpoints.
  *
  * The circuit breaker is intentionally stateful: create one instance per
  * endpoint and reuse it across calls.
  */
 
 import { isTransientError } from "../shared/errors";
+import { createLogger } from "../infrastructure/logger";
+import { recordOperationError, traceSpan } from "../performance/telemetry";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -31,6 +36,26 @@ export interface CircuitBreakerConfig {
    * @default 60_000
    */
   recoveryWindowMs?: number;
+  /**
+   * Maximum number of probe requests allowed concurrently in HALF_OPEN state.
+   * The circuit closes only after successThreshold of them succeed.
+   * @default 1
+   */
+  halfOpenMaxProbes?: number;
+  /**
+   * Number of consecutive probe successes in HALF_OPEN required to close
+   * the circuit. Must not exceed halfOpenMaxProbes.
+   * @default 1
+   */
+  successThreshold?: number;
+  /**
+   * Maximum random jitter added to the recovery window on each OPEN→HALF_OPEN
+   * transition. Prevents synchronized re-opening when multiple breakers share
+   * the same recoveryWindowMs.
+   * Set to 0 to disable jitter (useful in tests).
+   * @default 5_000
+   */
+  cooldownJitterMs?: number;
   /**
    * Optional callback invoked on every state transition.
    * Useful for metrics, logging, and alerting.
@@ -49,8 +74,10 @@ export interface CircuitStateChangeEvent {
 export interface CircuitBreakerMetrics {
   state: CircuitState;
   consecutiveFailures: number;
+  consecutiveProbeSuccesses: number;
   totalFailures: number;
   totalSuccesses: number;
+  activeProbes: number;
   /** Epoch ms when the circuit was last opened, or null if never opened. */
   lastOpenedAt: number | null;
   /** Epoch ms when the circuit last transitioned to any state. */
@@ -77,6 +104,11 @@ export class CircuitOpenError extends Error {
 
 const DEFAULT_FAILURE_THRESHOLD = 5;
 const DEFAULT_RECOVERY_WINDOW_MS = 60_000;
+const DEFAULT_HALF_OPEN_MAX_PROBES = 1;
+const DEFAULT_SUCCESS_THRESHOLD = 1;
+const DEFAULT_COOLDOWN_JITTER_MS = 5_000;
+
+const logger = createLogger("circuit-breaker", "info");
 
 // ─── Implementation ───────────────────────────────────────────────────────────
 
@@ -84,21 +116,31 @@ const DEFAULT_RECOVERY_WINDOW_MS = 60_000;
  * Circuit breaker state machine for a single RPC endpoint.
  *
  * @example
- * const cb = new CircuitBreaker("https://soroban-testnet.stellar.org");
+ * const cb = new CircuitBreaker("https://soroban-testnet.stellar.org", {
+ *   halfOpenMaxProbes: 2,
+ *   successThreshold: 2,
+ *   cooldownJitterMs: 3000,
+ * });
  *
- * // Wrap every call:
  * const result = await cb.call(() => rpc.simulateTransaction(tx));
  */
 export class CircuitBreaker {
   private state: CircuitState = "CLOSED";
   private consecutiveFailures = 0;
+  private consecutiveProbeSuccesses = 0;
   private totalFailures = 0;
   private totalSuccesses = 0;
+  private activeProbes = 0;
   private lastOpenedAt: number | null = null;
   private lastTransitionAt: number = Date.now();
+  /** Epoch ms when the OPEN→HALF_OPEN transition is due (includes jitter). */
+  private recoveryDueAt: number | null = null;
 
   private readonly failureThreshold: number;
   private readonly recoveryWindowMs: number;
+  private readonly halfOpenMaxProbes: number;
+  private readonly successThreshold: number;
+  private readonly cooldownJitterMs: number;
   private readonly onStateChange:
     | ((event: CircuitStateChangeEvent) => void)
     | undefined;
@@ -111,6 +153,18 @@ export class CircuitBreaker {
       config.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
     this.recoveryWindowMs =
       config.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
+    this.halfOpenMaxProbes = Math.max(
+      1,
+      config.halfOpenMaxProbes ?? DEFAULT_HALF_OPEN_MAX_PROBES,
+    );
+    this.successThreshold = Math.min(
+      this.halfOpenMaxProbes,
+      Math.max(1, config.successThreshold ?? DEFAULT_SUCCESS_THRESHOLD),
+    );
+    this.cooldownJitterMs = Math.max(
+      0,
+      config.cooldownJitterMs ?? DEFAULT_COOLDOWN_JITTER_MS,
+    );
     this.onStateChange = config.onStateChange ?? undefined;
   }
 
@@ -125,8 +179,10 @@ export class CircuitBreaker {
     return {
       state: this.currentState,
       consecutiveFailures: this.consecutiveFailures,
+      consecutiveProbeSuccesses: this.consecutiveProbeSuccesses,
       totalFailures: this.totalFailures,
       totalSuccesses: this.totalSuccesses,
+      activeProbes: this.activeProbes,
       lastOpenedAt: this.lastOpenedAt,
       lastTransitionAt: this.lastTransitionAt,
     };
@@ -139,7 +195,8 @@ export class CircuitBreaker {
    *
    * - CLOSED: execute normally; track failures and successes.
    * - OPEN: throw `CircuitOpenError` immediately without calling `fn`.
-   * - HALF_OPEN: execute one probe; close on success, reopen on failure.
+   * - HALF_OPEN: allow up to halfOpenMaxProbes concurrent probes;
+   *   close after successThreshold consecutive successes, reopen on failure.
    */
   async call<T>(fn: () => Promise<T>): Promise<T> {
     this.checkRecovery();
@@ -148,24 +205,44 @@ export class CircuitBreaker {
       throw new CircuitOpenError(this.endpoint, this.lastOpenedAt!);
     }
 
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (error) {
-      // Only transient errors (5xx, timeout, network) count as circuit failures.
-      // Permanent errors (bad params, 404) pass through without tripping the circuit.
-      if (isTransientError(error)) {
-        this.onFailure();
-      }
-      throw error;
+    if (this.state === "HALF_OPEN" && this.activeProbes >= this.halfOpenMaxProbes) {
+      // Probe slots exhausted — treat as open until a slot frees up.
+      throw new CircuitOpenError(this.endpoint, this.lastOpenedAt!);
     }
+
+    if (this.state === "HALF_OPEN") {
+      this.activeProbes += 1;
+    }
+
+    return traceSpan(
+      `circuit-breaker.call`,
+      async () => {
+        try {
+          const result = await fn();
+          this.onSuccess();
+          return result;
+        } catch (error) {
+          if (isTransientError(error)) {
+            this.onFailure();
+          }
+          throw error;
+        } finally {
+          if (this.state === "HALF_OPEN" || this.activeProbes > 0) {
+            this.activeProbes = Math.max(0, this.activeProbes - 1);
+          }
+        }
+      },
+      { attributes: { endpoint: this.endpoint, state: this.state } },
+    );
   }
 
   // ─── Manual reset ───────────────────────────────────────────────────────────
 
   /** Force the circuit back to CLOSED. Useful for tests or manual recovery. */
   reset(): void {
+    this.consecutiveProbeSuccesses = 0;
+    this.activeProbes = 0;
+    this.recoveryDueAt = null;
     this.transition("CLOSED");
     this.consecutiveFailures = 0;
   }
@@ -173,15 +250,17 @@ export class CircuitBreaker {
   // ─── Private helpers ────────────────────────────────────────────────────────
 
   /**
-   * If the circuit is OPEN and the recovery window has elapsed,
-   * transition to HALF_OPEN to allow a probe request.
+   * If the circuit is OPEN and the jittered recovery window has elapsed,
+   * transition to HALF_OPEN to allow probe requests.
    */
   private checkRecovery(): void {
     if (
       this.state === "OPEN" &&
-      this.lastOpenedAt !== null &&
-      Date.now() - this.lastOpenedAt >= this.recoveryWindowMs
+      this.recoveryDueAt !== null &&
+      Date.now() >= this.recoveryDueAt
     ) {
+      this.consecutiveProbeSuccesses = 0;
+      this.activeProbes = 0;
       this.transition("HALF_OPEN");
     }
   }
@@ -190,13 +269,17 @@ export class CircuitBreaker {
     this.totalSuccesses += 1;
 
     if (this.state === "HALF_OPEN") {
-      // Probe succeeded — close the circuit
-      this.consecutiveFailures = 0;
-      this.transition("CLOSED");
+      this.consecutiveProbeSuccesses += 1;
+      if (this.consecutiveProbeSuccesses >= this.successThreshold) {
+        // Enough consecutive probe successes — close the circuit.
+        this.consecutiveFailures = 0;
+        this.consecutiveProbeSuccesses = 0;
+        this.activeProbes = 0;
+        this.transition("CLOSED");
+      }
       return;
     }
 
-    // CLOSED: reset consecutive failure counter on any success
     this.consecutiveFailures = 0;
   }
 
@@ -205,9 +288,9 @@ export class CircuitBreaker {
     this.consecutiveFailures += 1;
 
     if (this.state === "HALF_OPEN") {
-      // Probe failed — reopen the circuit and restart the recovery clock
-      this.lastOpenedAt = Date.now();
-      this.transition("OPEN");
+      // Any probe failure reopens the circuit with a fresh jittered cooldown.
+      this.consecutiveProbeSuccesses = 0;
+      this.openCircuit();
       return;
     }
 
@@ -215,9 +298,23 @@ export class CircuitBreaker {
       this.state === "CLOSED" &&
       this.consecutiveFailures >= this.failureThreshold
     ) {
-      this.lastOpenedAt = Date.now();
-      this.transition("OPEN");
+      this.openCircuit();
     }
+  }
+
+  /** Trip the circuit open and arm the jittered recovery timer. */
+  private openCircuit(): void {
+    this.lastOpenedAt = Date.now();
+    const jitter =
+      this.cooldownJitterMs > 0
+        ? Math.floor(Math.random() * this.cooldownJitterMs)
+        : 0;
+    this.recoveryDueAt = this.lastOpenedAt + this.recoveryWindowMs + jitter;
+    this.transition("OPEN");
+    recordOperationError("circuit_breaker", {
+      endpoint: this.endpoint,
+      consecutiveFailures: this.consecutiveFailures,
+    });
   }
 
   private transition(to: CircuitState): void {
@@ -226,6 +323,13 @@ export class CircuitBreaker {
 
     this.state = to;
     this.lastTransitionAt = Date.now();
+
+    logger.info(`Circuit breaker transition: ${from} → ${to}`, {
+      operationId: "circuit-breaker",
+      network: this.endpoint,
+      consecutiveFailures: this.consecutiveFailures,
+      at: new Date(this.lastTransitionAt).toISOString(),
+    });
 
     this.onStateChange?.({
       endpoint: this.endpoint,
@@ -243,11 +347,8 @@ export class CircuitBreaker {
  * A lightweight registry that creates and reuses `CircuitBreaker` instances
  * keyed by endpoint URL.
  *
- * Use this when you want a single shared breaker per RPC endpoint across
- * multiple callers without passing a `CircuitBreaker` instance through params.
- *
  * @example
- * const registry = new CircuitBreakerRegistry();
+ * const registry = new CircuitBreakerRegistry({ halfOpenMaxProbes: 2 });
  * const result = await registry.call(rpcUrl, () => rpc.simulateTransaction(tx));
  */
 export class CircuitBreakerRegistry {

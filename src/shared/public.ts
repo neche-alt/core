@@ -35,6 +35,12 @@ export {
 } from "./mainnetSafety";
 
 export {
-  exportSafeDiagnostics,
-} from "./diagnostics";
-export type { SafeDiagnosticsExport } from "./diagnostics";
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
+export type {
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";
