@@ -71,3 +71,12 @@ export type {
 // ─── OpenTelemetry (#600) & SmartCache (#604) ────────────────────────────────
 export * from "./openTelemetry";
 export * from "./smartCache";
+
+// ─── First-run guided walkthrough (#108) ─────────────────────────────────────
+export { createWalkthroughManager } from "./walkthroughManager";
+export type {
+  WalkthroughStep,
+  WalkthroughConfig,
+  WalkthroughState,
+  WalkthroughManager,
+} from "./walkthroughManager";
