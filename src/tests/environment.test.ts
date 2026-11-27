@@ -3,17 +3,41 @@ import {
   isBrowser,
   isNode,
   getEnvironment,
+  getRuntimeCapabilities,
+  assertBrowserEnvironment,
   timers,
   crypto as envCrypto,
   getStorage,
   MemoryStorage,
 } from "../shared/environment";
+import { SorokitErrorCode } from "../shared/response";
 
 describe("environment abstraction", () => {
   it("correctly identifies Node.js runtime environment", () => {
     expect(isNode()).toBe(true);
     expect(isBrowser()).toBe(false);
     expect(getEnvironment()).toBe("node");
+  });
+
+  it("reports accurate runtime capabilities in Node.js", () => {
+    const caps = getRuntimeCapabilities();
+    expect(caps.environment).toBe("node");
+    expect(caps.hasFetch).toBe(typeof globalThis.fetch === "function");
+    expect(caps.hasAbortController).toBe(typeof globalThis.AbortController !== "undefined");
+    expect(caps.hasCrypto).toBe(true);
+    expect(caps.hasStorage).toBe(true);
+    // Node environment does not have WebAuthn PublicKeyCredential by default
+    expect(caps.hasWebAuthn).toBe(false);
+  });
+
+  it("assertBrowserEnvironment fails predictably in Node.js", () => {
+    const res = assertBrowserEnvironment("FreighterAdapter.connect");
+    expect(res.status).toBe("error");
+    if (res.status === "error") {
+      expect(res.error.code).toBe(SorokitErrorCode.WALLET_BROWSER_ONLY);
+      expect(res.error.message).toContain("FreighterAdapter.connect requires a browser environment");
+      expect(res.error.message).toContain('Running in "node"');
+    }
   });
 
   it("provides functional timer abstraction", async () => {

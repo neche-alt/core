@@ -38,6 +38,7 @@ It is deliberately stateless and framework-agnostic. It runs in Node, the browse
 
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
+- [Supported Runtimes and Compatibility](#supported-runtimes-and-compatibility)
 - [Quick Start](#quick-start)
 - [Supported Imports](#supported-imports)
 - [Modules](#modules)

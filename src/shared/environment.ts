@@ -3,7 +3,22 @@
  * Centralizes runtime detection, timers, crypto, and storage.
  */
 
+import { ok, err, SorokitErrorCode } from "./response";
+import type { SorokitResult } from "./response";
+
 export type RuntimeEnvironment = "browser" | "node" | "unknown";
+
+/**
+ * Detailed capability profile for the active runtime environment.
+ */
+export interface RuntimeCapabilities {
+  environment: RuntimeEnvironment;
+  hasFetch: boolean;
+  hasAbortController: boolean;
+  hasCrypto: boolean;
+  hasStorage: boolean;
+  hasWebAuthn: boolean;
+}
 
 /**
  * Safely detect whether the current runtime environment is a browser.
@@ -33,6 +48,52 @@ export function getEnvironment(): RuntimeEnvironment {
   if (isBrowser()) return "browser";
   if (isNode()) return "node";
   return "unknown";
+}
+
+/**
+ * Detect runtime capabilities available in the current environment.
+ */
+export function getRuntimeCapabilities(): RuntimeCapabilities {
+  const env = getEnvironment();
+  const hasFetch = typeof globalThis.fetch === "function";
+  const hasAbortController = typeof globalThis.AbortController !== "undefined";
+  let hasCrypto = false;
+  try {
+    const bytes = crypto.randomBytes(4);
+    hasCrypto = bytes.length === 4;
+  } catch {
+    hasCrypto = false;
+  }
+  const storage = getStorage();
+  const hasStorage = storage !== null && typeof storage.getItem === "function";
+  const hasWebAuthn =
+    typeof window !== "undefined" &&
+    typeof (window as any).PublicKeyCredential !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.credentials !== "undefined";
+
+  return {
+    environment: env,
+    hasFetch,
+    hasAbortController,
+    hasCrypto,
+    hasStorage,
+    hasWebAuthn,
+  };
+}
+
+/**
+ * Asserts that the current runtime environment is a browser.
+ * Returns ok(undefined) in a browser, or err(WALLET_BROWSER_ONLY) with an actionable message.
+ */
+export function assertBrowserEnvironment(operationName: string): SorokitResult<void> {
+  if (!isBrowser()) {
+    return err(
+      SorokitErrorCode.WALLET_BROWSER_ONLY,
+      `${operationName} requires a browser environment. Running in "${getEnvironment()}" is not supported for browser-only operations.`,
+    );
+  }
+  return ok(undefined);
 }
 
 /**
