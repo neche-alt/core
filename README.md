@@ -677,26 +677,34 @@ See the complete [Network Configuration and Safe Defaults Guide](docs/network-co
 
 ## Testing Utilities
 
-A mock client is provided for writing tests without hitting real network endpoints:
+The `sorokit-core/testing` subpath provides mock clients, wallet adapters, and network server scenarios for consumer test suites without hitting real network endpoints:
 
 ```ts
 import {
   createMockClient,
   createMockWalletAdapter,
+  setupMockServerScenario,
+  teardownMockServer,
 } from "sorokit-core/testing";
 
-const client = createMockClient();
-
-// Every method is a vi.fn() stub — override per test
-client.account.get.mockResolvedValueOnce(
-  ok({ publicKey: "G...", balances: [] }),
-);
-
-// Mock wallet adapter for signing flows
+// 1. Mock wallet adapter with vi.fn() stubs
 const adapter = createMockWalletAdapter();
+
+// 2. Mock client with partial method overrides
+const client = createMockClient({
+  overrides: {
+    soroban: {
+      read: vi.fn().mockResolvedValue(ok({ result: 100n })),
+    },
+  },
+});
+
+// 3. Integration test mock server scenarios with proper cleanup
+setupMockServerScenario({ scenario: "success", horizonUrl, rpcUrl });
+// In afterEach: teardownMockServer();
 ```
 
-> Requires `vitest` as a peer dependency.
+See the complete [Consumer Testing Guide](docs/testing-guide.md) for isolating wallet, RPC, and smart contract behavior.
 
 For scenarios that need to run against real, live testnet (account funding, payments, multi-sig, a real Soroban contract invoke, DEX offers, account merge), see `src/tests/e2e.test.ts` and run `npm run test:e2e` — it self-funds every account via Friendbot, so no secrets are required. It's skipped by default in `npm test` and runs nightly in CI (`.github/workflows/e2e.yml`).
 
