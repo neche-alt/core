@@ -16,6 +16,7 @@ export {
   recordOperationDuration,
   recordOperationError,
   recordCacheHit,
+  recordThrottleEvent,
   getTelemetryMetricsSummary,
   getTelemetrySpans,
   validateTelemetryConfig,

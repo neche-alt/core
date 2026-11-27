@@ -1,3 +1,5 @@
+import type { RateLimitSignal } from "./adaptiveRateLimiter";
+
 export interface CongestionSample {
   latencyMs: number;
   success: boolean;
@@ -69,6 +71,24 @@ export class CongestionMonitor {
 
   reset(): void {
     this.samples.length = 0;
+  }
+
+  /**
+   * Returns a RateLimitSignal when the endpoint is under elevated or congested
+   * conditions, or undefined when the endpoint is healthy.
+   *
+   * @param endpoint - The endpoint identifier to associate with the signal.
+   */
+  getSignal(endpoint: string): RateLimitSignal | undefined {
+    const snap = this.snapshot();
+    if (snap.level === "healthy") return undefined;
+    return {
+      reason: "congestion",
+      retryAfterMs: snap.recommendedDelayMs,
+      remainingBudget: snap.level === "elevated" ? 1 : 0.5,
+      endpoint,
+      triggeredAt: Date.now(),
+    };
   }
 }
 
