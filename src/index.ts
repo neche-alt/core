@@ -1068,6 +1068,11 @@ export type {
 } from "./soroban/storageMigration";
 export { buildContractDeploy } from "./soroban/deployContract";
 export {
+  validateContractWasm,
+  MAX_WASM_SIZE,
+} from "./soroban/validateContractWasm";
+export type { ValidatedContractWasm } from "./soroban/validateContractWasm";
+export {
   validateDeployConfig,
   collectDeployConfigIssues,
   formatDeployConfigIssues,

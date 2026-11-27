@@ -162,6 +162,11 @@ export type {
 } from "./simulator";
 export { buildContractDeploy } from "./deployContract";
 export {
+  validateContractWasm,
+  MAX_WASM_SIZE,
+} from "./validateContractWasm";
+export type { ValidatedContractWasm } from "./validateContractWasm";
+export {
   validateDeployConfig,
   collectDeployConfigIssues,
   formatDeployConfigIssues,

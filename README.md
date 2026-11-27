@@ -473,6 +473,32 @@ const issues = collectDeployConfigIssues({
 });
 ```
 
+`buildContractDeploy` also validates the WASM itself before any network call.
+A missing, oversized, or structurally malformed module fails locally with a
+`TX_BUILD_FAILED` error naming the exact problem, instead of surfacing later as
+an opaque RPC or simulation failure after the upload attempt. Run the same
+check from a deployment script to fail before you spend a build:
+
+```ts
+import { validateContractWasm } from "sorokit-core";
+import fs from "node:fs";
+
+const wasm = fs.readFileSync("contract.wasm");
+const wasmCheck = validateContractWasm(wasm);
+if (wasmCheck.status === "error") {
+  console.error(wasmCheck.error.message);
+  // Contract WASM is missing or empty. …
+  // Invalid WASM format: section 1 declares 500 bytes but only 8 remain (truncated module).
+  // Invalid WASM format: unsupported version. Only WASM version 1 … is supported.
+  process.exit(1);
+}
+```
+
+The WASM check covers the magic and version-1 headers, the 256 KB deploy size
+limit, and a structural walk of the section table — truncated length encodings,
+sections that overflow the buffer, unknown section ids, and duplicate known
+sections — all without I/O.
+
 ---
 
 ## Result Type and Error Handling
