@@ -80,6 +80,7 @@ export enum SorokitErrorCode {
   TX_FETCH_FAILED = "TX_FETCH_FAILED",
   TX_NOT_FOUND = "TX_NOT_FOUND",
   TX_SEQUENCE_CONFLICT = "TX_SEQUENCE_CONFLICT",
+  TX_DUPLICATE_SUBMISSION = "TX_DUPLICATE_SUBMISSION",
   ROUTER_INVALID_PATH = "ROUTER_INVALID_PATH",
   ROUTER_INSUFFICIENT_LIQUIDITY = "ROUTER_INSUFFICIENT_LIQUIDITY",
   ROUTER_SLIPPAGE_EXCEEDED = "ROUTER_SLIPPAGE_EXCEEDED",
@@ -313,4 +314,98 @@ export function assertOk<T>(
       `Expected ok result but got error: [${result.error.code}] ${result.error.message}`,
     );
   }
+}
+
+/**
+ * High-level error failure domains (#59).
+ *
+ * Developers need to distinguish invalid input, wallet rejection, network failure,
+ * simulation failure, and ledger execution failure to select the safe recovery path.
+ */
+export type SorokitErrorDomain =
+  | "invalid_input"
+  | "wallet_rejection"
+  | "network_failure"
+  | "simulation_failure"
+  | "ledger_execution_failure"
+  | "unknown";
+
+/**
+ * Check if the error was caused by invalid input or malformed arguments.
+ * Recovery: Safe — do not retry automatically; fix inputs and resubmit.
+ */
+export function isInvalidInputError(error: SorokitError): boolean {
+  return (
+    error.category === SorokitErrorCategory.VALIDATION ||
+    error.code === SorokitErrorCode.INVALID_CONFIG ||
+    error.code === SorokitErrorCode.INVALID_ADDRESS ||
+    error.code === SorokitErrorCode.VALIDATION ||
+    error.code === SorokitErrorCode.XDR_INVALID ||
+    error.code === SorokitErrorCode.MAINNET_SAFETY_LIMIT
+  );
+}
+
+/**
+ * Check if the error was caused by wallet connection or signature rejection.
+ * Recovery: Safe — do not retry automatically; prompt user to approve or reconnect.
+ */
+export function isWalletRejectionError(error: SorokitError): boolean {
+  return (
+    error.code === SorokitErrorCode.WALLET_SIGN_REJECTED ||
+    error.code === SorokitErrorCode.WALLET_NOT_CONNECTED ||
+    (error.category === SorokitErrorCategory.WALLET &&
+      /reject|declined|cancel/i.test(error.message))
+  );
+}
+
+/**
+ * Check if the error was caused by transport or endpoint network failure.
+ * Recovery: Safe to retry with exponential backoff and jitter.
+ */
+export function isNetworkFailureError(error: SorokitError): boolean {
+  return (
+    error.category === SorokitErrorCategory.NETWORK ||
+    error.category === SorokitErrorCategory.TIMEOUT ||
+    error.code === SorokitErrorCode.NETWORK_ERROR ||
+    error.code === SorokitErrorCode.SERVICE_UNAVAILABLE ||
+    error.code === SorokitErrorCode.RATE_LIMITED ||
+    error.code === SorokitErrorCode.OPERATION_TIMEOUT
+  );
+}
+
+/**
+ * Check if the error occurred during contract or transaction simulation.
+ * Recovery: Safe — inspect simulation return value / diagnostic events; do not submit.
+ */
+export function isSimulationFailureError(error: SorokitError): boolean {
+  return (
+    error.code === SorokitErrorCode.CONTRACT_SIMULATE_FAILED ||
+    error.code === SorokitErrorCode.SOROBAN_SIMULATION_FAILED ||
+    error.code === SorokitErrorCode.TX_SIMULATE_FAILED ||
+    error.code === SorokitErrorCode.CONTRACT_READ_FAILED
+  );
+}
+
+/**
+ * Check if the error occurred during ledger consensus and transaction execution.
+ * Recovery: Safe — refresh account sequence number, adjust fees, and re-sign.
+ */
+export function isLedgerExecutionError(error: SorokitError): boolean {
+  return (
+    error.code === SorokitErrorCode.TX_SUBMIT_FAILED ||
+    error.code === SorokitErrorCode.TX_SEQUENCE_CONFLICT ||
+    error.code === SorokitErrorCode.INSUFFICIENT_FEE
+  );
+}
+
+/**
+ * Classify a structured SorokitError into its operational failure domain.
+ */
+export function classifyErrorDomain(error: SorokitError): SorokitErrorDomain {
+  if (isInvalidInputError(error)) return "invalid_input";
+  if (isWalletRejectionError(error)) return "wallet_rejection";
+  if (isNetworkFailureError(error)) return "network_failure";
+  if (isSimulationFailureError(error)) return "simulation_failure";
+  if (isLedgerExecutionError(error)) return "ledger_execution_failure";
+  return "unknown";
 }

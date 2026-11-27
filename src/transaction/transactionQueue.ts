@@ -94,6 +94,33 @@ export interface RetryPolicy {
 }
 
 /**
+ * Weight multipliers controlling how many slots each priority level receives
+ * per drain cycle. Higher weight = more slots allocated proportionally.
+ */
+export interface PriorityWeights {
+  low: number;
+  normal: number;
+  high: number;
+  critical: number;
+}
+
+/**
+ * Observable metrics for the transaction queue.
+ */
+export interface QueueMetrics {
+  /** Total number of pending transactions */
+  depth: number;
+  /** Pending transaction count per priority level */
+  byPriority: Record<QueuePriority, number>;
+  /** Number of transactions currently in-flight */
+  processing: number;
+  /** Average time (ms) pending transactions have been waiting */
+  avgWaitMs: number;
+  /** Whether the concurrent submission cap is currently reached */
+  backpressureActive: boolean;
+}
+
+/**
  * Queue configuration options.
  */
 export interface TransactionQueueConfig {
@@ -105,6 +132,20 @@ export interface TransactionQueueConfig {
   retryPolicy?: RetryPolicy;
   /** Maximum queue size before rejecting new items */
   maxQueueSize?: number;
+  /** Maximum number of concurrently in-flight (processing) transactions. Default: 10 */
+  maxConcurrentSubmissions?: number;
+  /**
+   * When `maxConcurrentSubmissions` is reached:
+   * - `'reject'` returns an error immediately.
+   * - `'defer'` allows the enqueue and the item waits pending until capacity frees.
+   * Default: `'reject'`
+   */
+  backpressureMode?: "reject" | "defer";
+  /**
+   * Weight multipliers for draining — higher weight = more slots per drain cycle.
+   * Default: `{ low: 1, normal: 2, high: 4, critical: 8 }`
+   */
+  priorityWeights?: PriorityWeights;
 }
 
 // Default configuration
@@ -117,6 +158,9 @@ const DEFAULT_CONFIG: Required<TransactionQueueConfig> = {
     backoffMultiplier: 2,
   },
   maxQueueSize: 1000,
+  maxConcurrentSubmissions: 10,
+  backpressureMode: "reject",
+  priorityWeights: { low: 1, normal: 2, high: 4, critical: 8 },
 };
 
 /**
@@ -186,6 +230,28 @@ export class TransactionQueue {
             },
           },
         );
+      }
+
+      // Backpressure: reject immediately when concurrent submission cap is hit.
+      if (this.config.backpressureMode === "reject") {
+        let processingCount = 0;
+        for (const tx of this.queue.values()) {
+          if (tx.status === "processing") processingCount++;
+        }
+        if (processingCount >= this.config.maxConcurrentSubmissions) {
+          return err(
+            SorokitErrorCode.TX_SUBMIT_FAILED,
+            "Queue capacity exceeded; backpressure active",
+            undefined,
+            undefined,
+            {
+              context: {
+                operation: "enqueue",
+                parameters: { processing: processingCount, maxConcurrentSubmissions: this.config.maxConcurrentSubmissions },
+              },
+            },
+          );
+        }
       }
 
       // Validate dependencies exist
@@ -270,41 +336,140 @@ export class TransactionQueue {
   /**
    * Get next batch of transactions ready to submit.
    *
-   * Returns transactions ordered by priority, excluding those with
-   * unsatisfied dependencies.
+   * Transactions are drained using weighted priority: each priority level is
+   * allocated slots proportional to its weight so higher-priority work is
+   * never starved by bulk low-priority submissions, while lower-priority
+   * transactions still make progress.
    *
-   * @returns Array of queued transactions
+   * The returned batch is also bounded by `maxConcurrentSubmissions` minus
+   * the current in-flight count so the submission cap is never exceeded.
+   *
+   * @returns Array of ready transactions ordered highest-priority first.
    */
   getNextBatch(): QueuedTransaction[] {
-    const batch: QueuedTransaction[] = [];
-    const processed = new Set<string>();
+    const weights = this.config.priorityWeights;
+    const priorities: QueuePriority[] = ["critical", "high", "normal", "low"];
 
-    // Sort by priority (critical > high > normal > low)
-    const priorityOrder = { critical: 0, high: 1, normal: 2, low: 3 };
-    const sortedTxs = Array.from(this.queue.values())
-      .filter((tx) => tx.status === "pending")
-      .sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+    // Collect ready (pending + dependencies met) transactions per priority.
+    const buckets: Record<QueuePriority, QueuedTransaction[]> = {
+      critical: [],
+      high: [],
+      normal: [],
+      low: [],
+    };
 
-    for (const tx of sortedTxs) {
-      // Check if dependencies are satisfied
-      if (tx.dependsOn) {
-        const allDependenciesMet = tx.dependsOn.every((depId) => {
-          const depTx = this.queue.get(depId);
-          return depTx?.status === "completed";
-        });
+    for (const tx of this.queue.values()) {
+      if (tx.status !== "pending") continue;
 
-        if (!allDependenciesMet) {
-          continue;
-        }
+      if (tx.dependsOn && tx.dependsOn.length > 0) {
+        const allMet = tx.dependsOn.every(
+          (depId) => this.queue.get(depId)?.status === "completed",
+        );
+        if (!allMet) continue;
       }
 
-      if (batch.length < this.config.batchSize) {
-        batch.push(tx);
-        processed.add(tx.id);
+      buckets[tx.priority].push(tx);
+    }
+
+    // Respect concurrent submission cap.
+    let processingCount = 0;
+    for (const tx of this.queue.values()) {
+      if (tx.status === "processing") processingCount++;
+    }
+    const capacityRemaining = Math.max(
+      0,
+      this.config.maxConcurrentSubmissions - processingCount,
+    );
+    const slotLimit = Math.min(this.config.batchSize, capacityRemaining);
+
+    if (slotLimit === 0) return [];
+
+    // Weighted round-robin: allocate slots proportional to weight.
+    const totalWeight = priorities.reduce((sum, p) => sum + weights[p], 0);
+    const batch: QueuedTransaction[] = [];
+
+    // Compute per-bucket slot allocations (floor, then distribute remainder).
+    const rawAllocs = priorities.map((p) =>
+      Math.floor((weights[p] / totalWeight) * slotLimit),
+    );
+    let allocated = rawAllocs.reduce((s, n) => s + n, 0);
+    // Distribute remaining slots to buckets with the largest fractional parts.
+    const fracs = priorities.map((p, i) => ({
+      p,
+      i,
+      frac: (weights[p] / totalWeight) * slotLimit - rawAllocs[i]!,
+    }));
+    fracs.sort((a, b) => b.frac - a.frac);
+    for (const { i } of fracs) {
+      if (allocated >= slotLimit) break;
+      rawAllocs[i]!++;
+      allocated++;
+    }
+
+    for (let pi = 0; pi < priorities.length; pi++) {
+      const p = priorities[pi]!;
+      const slots = rawAllocs[pi]!;
+      const bucket = buckets[p];
+      for (let j = 0; j < slots && j < bucket.length; j++) {
+        batch.push(bucket[j]!);
+      }
+    }
+
+    // If some high-priority buckets were under-allocated (fewer items than
+    // slots), redistribute leftover slots to lower buckets, highest first.
+    let used = batch.length;
+    if (used < slotLimit) {
+      for (const p of priorities) {
+        const bucket = buckets[p];
+        for (const tx of bucket) {
+          if (used >= slotLimit) break;
+          if (!batch.includes(tx)) {
+            batch.push(tx);
+            used++;
+          }
+        }
+        if (used >= slotLimit) break;
       }
     }
 
     return batch;
+  }
+
+  /**
+   * Returns observable metrics for the current queue state.
+   *
+   * Use these values to feed telemetry (see `recordQueueDepth` and
+   * `recordQueueWaitTime` in `src/performance/telemetry.ts`).
+   */
+  getQueueMetrics(): QueueMetrics {
+    const byPriority: Record<QueuePriority, number> = {
+      low: 0,
+      normal: 0,
+      high: 0,
+      critical: 0,
+    };
+    let processing = 0;
+    let totalWaitMs = 0;
+    let pendingCount = 0;
+    const now = Date.now();
+
+    for (const tx of this.queue.values()) {
+      if (tx.status === "pending") {
+        byPriority[tx.priority]++;
+        totalWaitMs += now - tx.queuedAt;
+        pendingCount++;
+      } else if (tx.status === "processing") {
+        processing++;
+      }
+    }
+
+    return {
+      depth: pendingCount,
+      byPriority,
+      processing,
+      avgWaitMs: pendingCount > 0 ? totalWaitMs / pendingCount : 0,
+      backpressureActive: processing >= this.config.maxConcurrentSubmissions,
+    };
   }
 
   /**
