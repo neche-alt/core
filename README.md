@@ -1057,7 +1057,7 @@ Having trouble? The [troubleshooting decision tree](docs/troubleshooting.md) cov
 
 **No-throw** — every function returns `SorokitResult<T>`. Errors are values, not exceptions.
 
-**Framework-agnostic** — zero dependency on React, Vue, or any UI framework. Works in Node, the browser, and server-side rendering environments.
+**Framework-agnostic** — zero dependency on React, Vue, or any UI framework. Works in Node, the browser, and server-side rendering (SSR) environments. All public subpath exports are smoke-tested against pure Node runtimes without requiring browser globals (`window`, `document`).
 
 **Adapter-based wallets** — wallet integration is delegated to [Stellar Wallets Kit](https://github.com/creit-tech/stellar-wallets-kit), keeping `sorokit-core` decoupled from wallet implementation details.
 

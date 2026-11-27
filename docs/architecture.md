@@ -61,6 +61,14 @@ Sorokit Core supports request deduplication (`createRequestDeduplicator`, `dedup
 
 New workflows should compose existing builders and validators rather than create a second transaction-construction path. Policy modules should decide whether an operation is permitted before construction. Analysis modules should remain deterministic and side-effect free whenever possible. Network-dependent modules should use the shared server factory and classify failures through the shared error helpers.
 
+## Server-Side Rendering (SSR) & Build Safety
+
+All public package exports and subpaths (`sorokit-core`, `sorokit-core/wallet`, `sorokit-core/account`, etc.) are guaranteed safe to import and evaluate in Node.js server environments without requiring browser globals (`window`, `document`, `navigator`, `localStorage`).
+
+- **No top-level browser evaluation**: Module loading never accesses global DOM objects.
+- **Graceful adapter degradation**: Browser-only wallet adapters (`FreighterAdapter`, `LobstrAdapter`, `XBullAdapter`, `HanaAdapter`, `AlbedoAdapter`, `RabetAdapter`) evaluate cleanly on the server; their `isAvailable()` method synchronously returns `false`, and `.connect()` returns `SorokitErrorCode.WALLET_BROWSER_ONLY` without throwing unhandled exceptions.
+- **Automated verification**: SSR import safety across all public entry points is enforced via automated smoke tests (`src/tests/ssrImportSmoke.test.ts`).
+
 ## Migration from direct Stellar SDK usage
 
 Applications that currently instantiate `TransactionBuilder` directly can migrate incrementally: keep their existing wallet adapter, replace construction with a Sorokit builder, branch on `SorokitResult`, and pass the returned XDR to the same signing and submission flow. For contract calls, move simulation before signing and use the returned error code to decide whether to retry, refresh sequence data, or ask the user for an updated input.
