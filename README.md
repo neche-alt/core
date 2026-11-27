@@ -757,39 +757,34 @@ ac.abort();
 
 The same pattern applies to `client.transaction.stream()`.
 
-### Cursor-based resumption
+### Contract event cursor recovery
 
-Transaction streams yield a `nextCursor` on each page. Save it with `createCursorStore()` and pass it back as `cursor` to resume without replaying history. Use `PersistentEventDeduplicationStore` to prevent duplicate processing across reconnects:
+`subscribeContractEvents` and `streamContractEvents` track the last ledger they
+processed in memory. To resume after a restart, pass the persisted ledger as
+`startLedger` — the subscription recovers every event after it, bounded by
+`recoveryWindowMs` so a restart never replays an unbounded history and never
+re-emits the ledger the consumer already processed:
 
 ```ts
-import { streamTransactions, createCursorStore, PersistentEventDeduplicationStore } from "sorokit-core";
+import { subscribeContractEvents } from "sorokit-core/soroban";
 
-const cursorStore = createCursorStore(); // localStorage in browsers, memory in Node
-const dedup = new PersistentEventDeduplicationStore();
-const CURSOR_KEY = `tx-stream:${publicKey}`;
-
-const savedCursor = await cursorStore.load(CURSOR_KEY);
-const ac = new AbortController();
-
-for await (const result of streamTransactions(horizonUrl, publicKey, {
-  cursor: savedCursor,
-  order: "asc",
-  enableAutoRetry: true,
-}, ac.signal)) {
-  if (result.status === "ok") {
-    for (const tx of result.data.transactions) {
-      if (await dedup.has(tx.hash)) continue;
-      await processTransaction(tx);
-      await dedup.add(tx.hash);
-    }
-    if (result.data.nextCursor !== null) {
-      await cursorStore.save(CURSOR_KEY, result.data.nextCursor);
-    }
-  }
-}
+const lastLedger = await loadCursor();           // persisted across restarts
+const unsub = subscribeContractEvents(
+  "C...",
+  undefined,
+  (events) => {
+    const max = events.reduce((m, e) => (typeof e.ledger === "number" && e.ledger > m ? e.ledger : m), lastLedger ?? 0);
+    saveCursor(max);                              // advance the durable cursor after handling the batch
+  },
+  { horizonUrl, startLedger: lastLedger, recoveryWindowMs: 60_000 },
+);
 ```
 
-For the full specification — startup semantics, reconnect backoff schedule, cursor ordering requirements, delivery guarantees, and event-emitter backpressure — see [docs/streaming-lifecycle.md](docs/streaming-lifecycle.md).
+Persist the cursor atomically with your downstream processing so it only
+advances once the batch is durably recorded, and deduplicate by event `id`
+across restarts if your sink is not idempotent. The
+[`examples/event-cursor-recovery`](examples/event-cursor-recovery) example wraps
+this into a `createRestartableConsumer` with a pluggable cursor store.
 
 ### Real-time transaction SSE
 
@@ -1098,9 +1093,7 @@ if (balance.status === "ok") console.log("Balance:", balance.data.result);
 | [`examples/react-wallet-connect`](examples/react-wallet-connect) | React: connect wallet, fetch balances, build + sign + submit payment |
 | [`examples/vue-soroban`](examples/vue-soroban) | Vue 3: contract method selection, invoke with progress, account streaming |
 | [`examples/next-serverless`](examples/next-serverless) | Next.js + Lambda: server-side signing, batch account ops, Vercel/AWS handler |
-| [`examples/transaction-dashboard`](examples/transaction-dashboard) | React & Vue: responsive transaction timeline, status polling, and fee alerts |
-
-See [Framework Examples Index and Maintenance Guide](examples/README.md) for full setup instructions, typecheck commands, and the SDK release alignment checklist.
+| [`examples/event-cursor-recovery`](examples/event-cursor-recovery) | Restartable contract event consumer: persist a ledger cursor, resume from it after a restart without losing events or replaying an unbounded history |
 
 Examples are type-checked against the SDK source with `npm run typecheck:examples`.
 

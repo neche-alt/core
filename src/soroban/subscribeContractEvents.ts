@@ -37,6 +37,15 @@ export interface ContractEventSubscriptionOptions {
   deduplicationMaxSize?: number;
   /** Maximum age (ms) of missed ledgers to recover after reconnection. Default: 60000 (1 minute). */
   recoveryWindowMs?: number;
+  /**
+   * Ledger sequence to resume from after a restart (#45).
+   *
+   * Set this to the last ledger a consumer has already processed (persisted
+   * across restarts). On the first poll the subscription recovers every event
+   * after this ledger, bounded by {@link recoveryWindowMs} so restart never
+   * replays an unbounded history. Omit to start from the current chain tip.
+   */
+  startLedger?: number;
 }
 
 /** Default TTL for deduplication entries: 1 hour (3,600,000 ms). */
@@ -341,7 +350,14 @@ export function subscribeContractEvents(
   const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
   const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
   const recoveryWindowMs = options.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
-  let lastProcessedLedger: number | undefined;
+  // Resume from a persisted cursor after a restart (#45): treat the supplied
+  // ledger as already-processed so the first poll recovers the events after it
+  // (bounded by the recovery window) instead of starting at the current tip.
+  let lastProcessedLedger: number | undefined = options.startLedger;
+  // Only the first poll after a cursor resume may need to suppress events at
+  // or before the cursor (the tip has not advanced past it); later polls reuse
+  // the in-memory deduplication set like the normal flow.
+  let firstPollAfterResume = options.startLedger !== undefined;
   let polling = false;
   let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -443,8 +459,20 @@ export function subscribeContractEvents(
       }
 
       if (currentNewEvents.length > 0) {
-        callback(currentNewEvents);
+        // On the first poll after a cursor resume, if the tip has not advanced
+        // past the cursor there is nothing new to deliver — skip the events at
+        // or before the cursor so a restart never replays already-processed
+        // ledgers (the per-session deduplication set starts empty on restart).
+        const skipCurrentOnResume =
+          firstPollAfterResume &&
+          latestSequence !== undefined &&
+          lastProcessedLedger !== undefined &&
+          latestSequence <= lastProcessedLedger;
+        if (!skipCurrentOnResume) {
+          callback(currentNewEvents);
+        }
       }
+      firstPollAfterResume = false;
 
       if (latestSequence !== undefined) {
         lastProcessedLedger = latestSequence;
@@ -575,7 +603,10 @@ export async function* streamContractEvents(
   const deduplicationTtlMs = options.deduplicationTtlMs ?? DEFAULT_DEDUPLICATION_TTL_MS;
   const deduplicationMaxSize = options.deduplicationMaxSize ?? DEFAULT_DEDUPLICATION_MAX_SIZE;
   const recoveryWindowMs = options.recoveryWindowMs ?? DEFAULT_RECOVERY_WINDOW_MS;
-  let lastProcessedLedger: number | undefined;
+  // Resume from a persisted cursor after a restart (#45) — same semantics as
+  // subscribeContractEvents. See that function for the rationale.
+  let lastProcessedLedger: number | undefined = options.startLedger;
+  let firstPollAfterResume = options.startLedger !== undefined;
 
   /**
    * Deduplicate a batch of events against the seen set, returning only
@@ -648,9 +679,21 @@ export async function* streamContractEvents(
 
         const currentNewEvents = deduplicateEvents(events);
 
+        // On the first poll after a cursor resume, if the tip has not advanced
+        // past the cursor there is nothing new to yield — drop the events at or
+        // before the cursor so a restart never replays already-processed ledgers.
+        const skipCurrentOnResume =
+          firstPollAfterResume &&
+          latestSequence !== undefined &&
+          lastProcessedLedger !== undefined &&
+          latestSequence <= lastProcessedLedger;
+        firstPollAfterResume = false;
+
         // Combine recovered + current events into a single yield (preserves ordering)
         const dedupedRecovered = deduplicateEvents(recoveredEvents);
-        const combined = [...dedupedRecovered, ...currentNewEvents];
+        const combined = skipCurrentOnResume
+          ? dedupedRecovered
+          : [...dedupedRecovered, ...currentNewEvents];
         if (combined.length > 0) {
           yield combined;
         }
