@@ -1,14 +1,20 @@
 # react-wallet-connect
 
-Connect a Stellar wallet with Freighter, fetch balances, and send a payment — using `sorokit-core` in a React app.
+Connect a Stellar wallet with Freighter, fetch balances, and send a payment — using `sorokit-core` in a React app. On reload the app detects a persisted session and shows a consent prompt before reconnecting.
 
 ```
 Connect wallet → Fetch balances → Build payment → Sign → Submit
+Reload → Detect session → Consent prompt (with trust level) → Reconnect or clear
 ```
 
 ## Patterns covered
 
 - Wallet connection and disconnection with `FreighterAdapter`
+- **Reconnect-on-reload with explicit consent** via `reconnectWithConsent`
+  - Persists the session after a successful connect (`saveSession`)
+  - On reload, detects the saved session and surfaces a consent prompt
+  - Shows device trust level (from `deviceTrust.ts`) in the prompt
+  - On rejection, clears the session (`clearSession`) and returns to idle
 - Loading account balances with `client.account.getBalances`
 - Building and signing a payment with `client.transaction.buildPayment`
 - Handling `SorokitResult<T>` in component state (no try/catch)
@@ -39,7 +45,6 @@ The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this map
 ## Setup
 
 ```bash
-# From your own CRA / Vite React project:
 npm install sorokit-core @creit.tech/stellar-wallets-kit
 ```
 
@@ -63,7 +68,15 @@ const kit = new StellarWalletsKit({
 Then pass it to `useSorokit`:
 
 ```ts
-const { walletState, connect, balances, sendPayment } = useSorokit(kit, "testnet");
+const {
+  walletState,
+  connect,
+  balances,
+  sendPayment,
+  pendingReconnect,
+  approveReconnect,
+  rejectReconnect,
+} = useSorokit(kit, "testnet");
 ```
 
 ## Activity states
