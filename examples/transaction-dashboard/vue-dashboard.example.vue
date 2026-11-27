@@ -1,14 +1,16 @@
 <!--
-  Vue transaction status dashboard example (#708, #136).
+  Vue transaction status dashboard example (#708, #106).
 
   Subscribes to a `TransactionStatusAggregator` and renders live metrics,
   status distribution, and recent transactions. Unsubscribes on unmount so
   SPAs don't leak listeners.
 
-  The fee panel (#136) adds live congestion-adjusted fee suggestions. It reads
-  from `CongestionMonitor`, `feeForecast`, `feePolicy`, and `feeSurge` to show
-  low / medium / high fee suggestions, a surge warning, and a reactive
-  selected-fee display.
+  Error recovery (#106):
+  - Read failures (snapshot reload) expose a safe "Retry" button — re-fetching
+    is idempotent and cannot cause side-effects.
+  - Write failures (transaction submission) show a status-check prompt with a
+    block-explorer link so the user confirms the tx did not land before
+    resubmitting, preventing accidental double-spends.
 -->
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from "vue";
@@ -28,14 +30,30 @@ const props = defineProps<{
   panel?: FeePanel;
 }>();
 
+/** Distinguishes safe read retries from writes that need a status check first. */
+export type DashboardErrorKind = "read" | "write";
+
+export interface DashboardError {
+  kind: DashboardErrorKind;
+  message: string;
+  /** Hash of the transaction involved, present for write errors. */
+  txHash?: string;
+}
+
+const props = defineProps<{
+  aggregator: TransactionStatusAggregator;
+  /**
+   * Called when the user clicks "Retry" on a read error.
+   * Provide a function that re-fetches data and re-populates the aggregator.
+   */
+  onRetryRead?: () => Promise<void>;
+}>();
+
 const snapshot = ref<DashboardSnapshot>(props.aggregator.getSnapshot());
+const dashError = ref<DashboardError | null>(null);
+const retrying = ref(false);
 
-// Use the provided panel or create a default one for standalone use.
-const feePanel = props.panel ?? createFeePanel({ network: "testnet" });
-const feeSnap = ref<FeePanelSnapshot>(feePanel.getSnapshot());
-
-let unsubscribeDashboard: (() => void) | undefined;
-let unsubscribeFeePanel: (() => void) | undefined;
+let unsubscribe: (() => void) | undefined;
 
 onMounted(() => {
   unsubscribeDashboard = props.aggregator.subscribe((next) => {
@@ -51,15 +69,31 @@ onUnmounted(() => {
   unsubscribeFeePanel?.();
 });
 
-function selectTier(tier: FeePolicyTier) {
-  feePanel.selectTier(tier);
+/** Returns true when retrying the operation is safe without a status check. */
+function isRetryable(err: DashboardError): boolean {
+  return err.kind === "read";
 }
 
-const congestionColor: Record<string, string> = {
-  healthy: "#16a34a",
-  elevated: "#d97706",
-  congested: "#dc2626",
-};
+/** Returns true when the caller must check transaction status before retrying. */
+function requiresStatusCheck(err: DashboardError): boolean {
+  return err.kind === "write";
+}
+
+async function handleRetryRead() {
+  if (!props.onRetryRead) return;
+  retrying.value = true;
+  dashError.value = null;
+  try {
+    await props.onRetryRead();
+  } catch (err) {
+    dashError.value = {
+      kind: "read",
+      message: err instanceof Error ? err.message : "Failed to reload transactions.",
+    };
+  } finally {
+    retrying.value = false;
+  }
+}
 </script>
 
 <template>
@@ -72,50 +106,34 @@ const congestionColor: Record<string, string> = {
       </p>
     </header>
 
-    <!-- Fee panel — congestion-adjusted suggestions (#136) -->
-    <section aria-label="Fee panel" class="fee-panel">
-      <h3>Network fees</h3>
+    <!-- Error recovery affordances (#106) -->
+    <div v-if="dashError" role="alert" aria-live="polite">
+      <p>{{ dashError.message }}</p>
 
-      <!-- Congestion level -->
-      <p>
-        Congestion:
-        <strong :style="{ color: congestionColor[feeSnap.congestionLevel] ?? '#374151' }">
-          {{ feeSnap.congestionLevel }}
-        </strong>
-        <span class="muted">
-          (avg latency {{ Math.round(feeSnap.congestion.averageLatencyMs) }} ms ·
-          {{ (feeSnap.congestion.failureRate * 100).toFixed(1) }}% failure rate)
-        </span>
-      </p>
-
-      <!-- Three fee suggestions -->
-      <div class="suggestions">
-        <button
-          v-for="s in feeSnap.suggestions"
-          :key="s.tier"
-          :aria-pressed="feeSnap.selectedTier === s.tier"
-          :class="['suggestion-btn', { selected: feeSnap.selectedTier === s.tier }]"
-          @click="selectTier(s.tier)"
-        >
-          {{ s.label }}
-        </button>
-      </div>
-
-      <!-- Selected fee -->
-      <p class="selected-fee">
-        Selected fee:
-        <span class="fee-value">{{ feeSnap.selectedFeeStroops }} stroops</span>
-      </p>
-
-      <!-- Surge warning -->
-      <p
-        v-if="feeSnap.surgeWarning && feeSnap.surgeMessage"
-        role="alert"
-        class="surge-warning"
+      <!-- Read error: safe to retry immediately -->
+      <button
+        v-if="isRetryable(dashError) && onRetryRead"
+        :disabled="retrying"
+        @click="handleRetryRead"
       >
-        ⚠️ {{ feeSnap.surgeMessage }}
-      </p>
-    </section>
+        {{ retrying ? "Retrying…" : "Retry" }}
+      </button>
+
+      <!-- Write error: direct user to check status before retrying -->
+      <template v-if="requiresStatusCheck(dashError)">
+        <p>
+          <strong>Do not resubmit yet.</strong> Check whether the transaction landed first:
+          <a
+            v-if="dashError.txHash"
+            :href="`https://stellar.expert/explorer/testnet/tx/${dashError.txHash}`"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View on Stellar Expert ↗
+          </a>
+        </p>
+      </template>
+    </div>
 
     <ul>
       <li v-for="s in snapshot.charts.statusDistribution" :key="s.label">

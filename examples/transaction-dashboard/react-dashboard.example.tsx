@@ -1,15 +1,18 @@
 /**
- * React transaction status dashboard example (#708, #136).
+ * React transaction status dashboard example (#708, #106).
  *
  * Copy this pattern into your app. It subscribes to a
  * `TransactionStatusAggregator` (live metrics + chart data) and renders
  * success rate, fee analysis, status distribution, and recent transactions.
  *
- * For streaming a live, growing activity feed into a virtualized list (with
- * cursor-based resume and backpressure handling), see:
- * `examples/transaction-dashboard/virtualized-activity-feed.example.tsx`
+ * Error recovery (#106):
+ * - Read operations (fetching the snapshot / refreshing balances) expose a
+ *   safe "Retry" button — re-running them is always idempotent.
+ * - Write operations (transaction submissions) show a status-check link
+ *   instead of a retry button so the user confirms the transaction did not
+ *   land before resubmitting, preventing accidental double-spends.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   TransactionStatusAggregator,
   streamTransactionStatus,
@@ -30,100 +33,52 @@ export function startLiveUpdates(fetchRecent: () => Promise<TransactionResult[]>
   return () => handle.stop();
 }
 
-// ─── Fee panel component ──────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Error state shape
+// ---------------------------------------------------------------------------
 
-function FeePanelView({ panel = feePanel }: { panel?: FeePanel }) {
-  const [snap, setSnap] = useState<FeePanelSnapshot>(() => panel.getSnapshot());
+/** Distinguishes safe read retries from writes that need a status check first. */
+export type DashboardErrorKind = "read" | "write";
 
-  useEffect(() => panel.subscribe(setSnap), [panel]);
-
-  const handleTierChange = useCallback(
-    (tier: FeePolicyTier) => panel.selectTier(tier),
-    [panel],
-  );
-
-  const congestionColor: Record<string, string> = {
-    healthy: "#16a34a",
-    elevated: "#d97706",
-    congested: "#dc2626",
-  };
-
-  return (
-    <section aria-label="Fee panel" style={{ marginTop: "1.5rem", border: "1px solid #e5e7eb", borderRadius: 8, padding: "1rem" }}>
-      <h3 style={{ margin: "0 0 0.75rem" }}>Network fees</h3>
-
-      {/* Congestion level */}
-      <p style={{ margin: "0 0 0.75rem" }}>
-        Congestion:{" "}
-        <strong style={{ color: congestionColor[snap.congestionLevel] ?? "#374151" }}>
-          {snap.congestionLevel}
-        </strong>
-        {" "}
-        <span style={{ color: "#6b7280", fontSize: "0.85rem" }}>
-          (avg latency {Math.round(snap.congestion.averageLatencyMs)} ms ·{" "}
-          {(snap.congestion.failureRate * 100).toFixed(1)}% failure rate)
-        </span>
-      </p>
-
-      {/* Three fee suggestions */}
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        {snap.suggestions.map((s) => (
-          <button
-            key={s.tier}
-            onClick={() => handleTierChange(s.tier)}
-            aria-pressed={snap.selectedTier === s.tier}
-            style={{
-              flex: 1,
-              padding: "0.5rem",
-              borderRadius: 6,
-              border: snap.selectedTier === s.tier ? "2px solid #1d4ed8" : "1px solid #d1d5db",
-              background: snap.selectedTier === s.tier ? "#eff6ff" : "#f9fafb",
-              cursor: "pointer",
-              fontWeight: snap.selectedTier === s.tier ? 600 : 400,
-            }}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Selected fee */}
-      <p style={{ margin: "0 0 0.5rem", fontWeight: 500 }}>
-        Selected fee:{" "}
-        <span style={{ color: "#1d4ed8" }}>{snap.selectedFeeStroops} stroops</span>
-      </p>
-
-      {/* Surge warning */}
-      {snap.surgeWarning && snap.surgeMessage && (
-        <p
-          role="alert"
-          style={{
-            margin: 0,
-            padding: "0.6rem 0.75rem",
-            background: "#fef3c7",
-            border: "1px solid #f59e0b",
-            borderRadius: 6,
-            fontSize: "0.85rem",
-            color: "#92400e",
-          }}
-        >
-          ⚠️ {snap.surgeMessage}
-        </p>
-      )}
-    </section>
-  );
+export interface DashboardError {
+  kind: DashboardErrorKind;
+  message: string;
+  /** Hash of the transaction involved, present for write errors. */
+  txHash?: string;
 }
 
-// ─── Main dashboard component ─────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Recovery helpers (pure — no side-effects, easy to unit-test)
+// ---------------------------------------------------------------------------
+
+/** Returns true when retrying the operation is safe without a status check. */
+export function isRetryable(err: DashboardError): boolean {
+  return err.kind === "read";
+}
+
+/** Returns true when the caller must check transaction status before retrying. */
+export function requiresStatusCheck(err: DashboardError): boolean {
+  return err.kind === "write";
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard component
+// ---------------------------------------------------------------------------
 
 export function TransactionStatusDashboard({
   aggregator = dashboard,
-  panel = feePanel,
+  onRetryRead,
 }: {
   aggregator?: TransactionStatusAggregator;
-  panel?: FeePanel;
+  /**
+   * Called when the user clicks "Retry" on a read error.
+   * Provide a function that re-fetches data and re-populates the aggregator.
+   */
+  onRetryRead?: () => Promise<void>;
 }) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(() => aggregator.getSnapshot());
+  const [dashError, setDashError] = useState<DashboardError | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   // Subscription lifecycle: The caller owns the subscription and unsubscribes
   // on component unmount to prevent memory leaks and dangling callbacks.
@@ -131,6 +86,22 @@ export function TransactionStatusDashboard({
     const unsubscribe = aggregator.subscribe(setSnapshot);
     return () => unsubscribe();
   }, [aggregator]);
+
+  const handleRetryRead = useCallback(async () => {
+    if (!onRetryRead) return;
+    setRetrying(true);
+    setDashError(null);
+    try {
+      await onRetryRead();
+    } catch (err) {
+      setDashError({
+        kind: "read",
+        message: err instanceof Error ? err.message : "Failed to reload transactions.",
+      });
+    } finally {
+      setRetrying(false);
+    }
+  }, [onRetryRead]);
 
   return (
     <section aria-label="Transaction status dashboard">
@@ -145,16 +116,48 @@ export function TransactionStatusDashboard({
         </p>
       </header>
 
-      {/* Fee panel — congestion-adjusted suggestions (#136) */}
-      <FeePanelView panel={panel} />
+      {/* ── Error recovery affordances ─────────────────────────────────────── */}
+      {dashError && (
+        <div role="alert" aria-live="polite">
+          <p>{dashError.message}</p>
 
-      <ul style={{ marginTop: "1.5rem" }}>
+          {/* Read error: safe to retry immediately */}
+          {isRetryable(dashError) && onRetryRead && (
+            <button onClick={() => void handleRetryRead()} disabled={retrying}>
+              {retrying ? "Retrying…" : "Retry"}
+            </button>
+          )}
+
+          {/* Write error: direct the user to check status before retrying */}
+          {requiresStatusCheck(dashError) && (
+            <p>
+              <strong>Do not resubmit yet.</strong> Check whether the transaction
+              landed first:
+              {dashError.txHash && (
+                <a
+                  href={`https://stellar.expert/explorer/testnet/tx/${dashError.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {" "}
+                  View on Stellar Expert ↗
+                </a>
+              )}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── Status distribution ────────────────────────────────────────────── */}
+      <ul>
         {snapshot.charts.statusDistribution.map((s) => (
           <li key={s.label}>
             {s.label}: {s.value}
           </li>
         ))}
       </ul>
+
+      {/* ── Recent transactions ────────────────────────────────────────────── */}
       <ol>
         {snapshot.recent.map((entry) => (
           <li key={entry.tx.hash}>
