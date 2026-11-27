@@ -249,7 +249,7 @@ export async function* streamAccount(
         poll: polls + 1,
       });
 
-      const result = await getAccount(horizonUrl, publicKey);
+      const result = await getAccount(horizonUrl, publicKey, { signal });
 
       if (result.status === "ok") {
         logger?.debug("account.stream.poll", {
