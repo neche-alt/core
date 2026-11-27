@@ -171,3 +171,123 @@ describe("createRequestBatcher", () => {
     expect(fetcher.mock.calls[0]?.[0]).toHaveLength(1);
   });
 });
+
+describe("createRequestBatcher — adaptive windowing (#148)", () => {
+  it("calls onFlush with batchSize and fillTimeMs after each flush", async () => {
+    const impl: BatchFetcher<string, string> = async (keys) => {
+      const m = new Map<string, string>();
+      for (const k of keys) m.set(k, k.toUpperCase());
+      return m;
+    };
+    const fetcher = vi.fn(impl);
+    const flushEvents: Array<{ batchSize: number; fillTimeMs: number }> = [];
+
+    const batcher = createRequestBatcher(fetcher, {
+      windowMs: 10,
+      onFlush: (s) => flushEvents.push(s),
+    });
+
+    await Promise.all([batcher.request("a"), batcher.request("b"), batcher.request("c")]);
+
+    expect(flushEvents).toHaveLength(1);
+    expect(flushEvents[0]?.batchSize).toBe(3);
+    expect(typeof flushEvents[0]?.fillTimeMs).toBe("number");
+    expect(flushEvents[0]?.fillTimeMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("tracks avgBatchSize and avgBatchFillMs across multiple batches", async () => {
+    const impl: BatchFetcher<string, string> = async (keys) => {
+      const m = new Map<string, string>();
+      for (const k of keys) m.set(k, k);
+      return m;
+    };
+    const batcher = createRequestBatcher(vi.fn(impl), { windowMs: 5 });
+
+    // First batch: 2 keys
+    await Promise.all([batcher.request("x"), batcher.request("y")]);
+    // Second batch: 1 key (after window expires)
+    await batcher.request("z");
+
+    const stats = batcher.getStats();
+    expect(stats.totalBatches).toBe(2);
+    expect(stats.avgBatchSize).toBeGreaterThan(0);
+    expect(stats.avgBatchFillMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it("initialises avgBatchSize and avgBatchFillMs to 0 before any flush", () => {
+    const batcher = createRequestBatcher(vi.fn(async () => new Map()), { windowMs: 10 });
+    const stats = batcher.getStats();
+    expect(stats.avgBatchSize).toBe(0);
+    expect(stats.avgBatchFillMs).toBe(0);
+  });
+
+  it("flushes immediately on maxBatch even when adaptiveWindow is true", async () => {
+    const impl: BatchFetcher<number, number> = async (keys) => {
+      const m = new Map<number, number>();
+      for (const k of keys) m.set(k, k);
+      return m;
+    };
+    const fetcher = vi.fn(impl);
+    const flushEvents: Array<{ batchSize: number }> = [];
+
+    const batcher = createRequestBatcher(fetcher, {
+      adaptiveWindow: true,
+      minWindowMs: 5,
+      maxWindowMs: 50,
+      targetLatencyMs: 100,
+      maxBatch: 3,
+      windowMs: 5000, // would wait 5 s without maxBatch trigger
+      onFlush: (s) => flushEvents.push(s),
+    });
+
+    const start = Date.now();
+    await Promise.all([batcher.request(1), batcher.request(2), batcher.request(3)]);
+    const elapsed = Date.now() - start;
+
+    expect(flushEvents[0]?.batchSize).toBe(3);
+    // Must have flushed well before the 5 s window
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it("adaptiveWindow option does not break normal batching resolution", async () => {
+    const impl: BatchFetcher<string, string> = async (keys) => {
+      const m = new Map<string, string>();
+      for (const k of keys) m.set(k, `v-${k}`);
+      return m;
+    };
+    const batcher = createRequestBatcher(vi.fn(impl), {
+      adaptiveWindow: true,
+      minWindowMs: 2,
+      maxWindowMs: 20,
+      targetLatencyMs: 50,
+    });
+
+    const [a, b] = await Promise.all([batcher.request("alpha"), batcher.request("beta")]);
+    expect(a).toBe("v-alpha");
+    expect(b).toBe("v-beta");
+  });
+
+  it("targetLatencyMs caps the adaptive window", async () => {
+    // With targetLatencyMs: 8 and maxWindowMs: 100, the effective window
+    // must never exceed 8 ms regardless of the maxWindowMs setting.
+    const impl: BatchFetcher<string, string> = async (keys) => {
+      const m = new Map<string, string>();
+      for (const k of keys) m.set(k, k);
+      return m;
+    };
+    const flushTimes: number[] = [];
+    const start = Date.now();
+
+    const batcher = createRequestBatcher(vi.fn(impl), {
+      adaptiveWindow: true,
+      minWindowMs: 2,
+      maxWindowMs: 100,
+      targetLatencyMs: 8,
+      onFlush: () => flushTimes.push(Date.now() - start),
+    });
+
+    await batcher.request("only-key");
+    // Fill time must be <= targetLatencyMs + a small scheduling buffer
+    expect(flushTimes[0]).toBeLessThan(50);
+  });
+});
