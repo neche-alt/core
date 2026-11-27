@@ -343,4 +343,129 @@ describe("TransactionQueue", () => {
       expect(queue.getState().pending).toBe(100);
     });
   });
+
+  // ── #149: Priority weights, backpressure, and queue metrics ─────────────
+
+  describe("backpressure", () => {
+    it("rejects enqueue when maxConcurrentSubmissions is reached (reject mode)", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 2, backpressureMode: "reject" });
+      q.enqueue("tx1", mockEnvelopeXdr);
+      q.enqueue("tx2", mockEnvelopeXdr);
+
+      // Simulate both in-flight
+      const t1 = q.get("tx1")!;
+      const t2 = q.get("tx2")!;
+      t1.status = "processing";
+      t2.status = "processing";
+
+      const result = q.enqueue("tx3", mockEnvelopeXdr);
+      expect(result.status).toBe("error");
+      expect(result.error.code).toBe("TX_SUBMIT_FAILED");
+      expect(result.error.message).toMatch(/backpressure/i);
+    });
+
+    it("allows enqueue when backpressureMode is defer even when cap is hit", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 1, backpressureMode: "defer" });
+      q.enqueue("tx1", mockEnvelopeXdr);
+      q.get("tx1")!.status = "processing";
+
+      const result = q.enqueue("tx2", mockEnvelopeXdr);
+      expect(result.status).toBe("ok");
+    });
+  });
+
+  describe("weighted draining", () => {
+    it("allocates more slots to higher-priority transactions", () => {
+      const q = new TransactionQueue({
+        batchSize: 7,
+        priorityWeights: { low: 1, normal: 2, high: 4, critical: 8 },
+      });
+
+      // Add two of each priority
+      q.enqueue("lo1", mockEnvelopeXdr, "low");
+      q.enqueue("lo2", mockEnvelopeXdr, "low");
+      q.enqueue("no1", mockEnvelopeXdr, "normal");
+      q.enqueue("no2", mockEnvelopeXdr, "normal");
+      q.enqueue("hi1", mockEnvelopeXdr, "high");
+      q.enqueue("hi2", mockEnvelopeXdr, "high");
+      q.enqueue("cr1", mockEnvelopeXdr, "critical");
+      q.enqueue("cr2", mockEnvelopeXdr, "critical");
+
+      const batch = q.getNextBatch();
+      const criticalCount = batch.filter((t) => t.priority === "critical").length;
+      const lowCount = batch.filter((t) => t.priority === "low").length;
+
+      // Critical should receive more slots than low
+      expect(criticalCount).toBeGreaterThanOrEqual(lowCount);
+      expect(batch.length).toBeLessThanOrEqual(7);
+    });
+
+    it("respects maxConcurrentSubmissions cap in getNextBatch", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 2, batchSize: 10 });
+      for (let i = 0; i < 5; i++) q.enqueue(`tx${i}`, mockEnvelopeXdr);
+
+      // Simulate 1 in-flight
+      q.get("tx0")!.status = "processing";
+
+      const batch = q.getNextBatch();
+      // cap is 2, 1 processing → at most 1 more
+      expect(batch.length).toBeLessThanOrEqual(1);
+    });
+
+    it("returns empty batch when at concurrent cap", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 2, batchSize: 10 });
+      q.enqueue("tx1", mockEnvelopeXdr);
+      q.enqueue("tx2", mockEnvelopeXdr);
+      q.get("tx1")!.status = "processing";
+      q.get("tx2")!.status = "processing";
+      q.enqueue("tx3", mockEnvelopeXdr, "normal");
+
+      expect(q.getNextBatch()).toEqual([]);
+    });
+  });
+
+  describe("getQueueMetrics", () => {
+    it("reports zero metrics on empty queue", () => {
+      const metrics = queue.getQueueMetrics();
+      expect(metrics.depth).toBe(0);
+      expect(metrics.processing).toBe(0);
+      expect(metrics.avgWaitMs).toBe(0);
+      expect(metrics.backpressureActive).toBe(false);
+      expect(metrics.byPriority).toEqual({ low: 0, normal: 0, high: 0, critical: 0 });
+    });
+
+    it("counts pending transactions by priority", () => {
+      queue.enqueue("a", mockEnvelopeXdr, "critical");
+      queue.enqueue("b", mockEnvelopeXdr, "low");
+      queue.enqueue("c", mockEnvelopeXdr, "normal");
+
+      const metrics = queue.getQueueMetrics();
+      expect(metrics.depth).toBe(3);
+      expect(metrics.byPriority.critical).toBe(1);
+      expect(metrics.byPriority.low).toBe(1);
+      expect(metrics.byPriority.normal).toBe(1);
+    });
+
+    it("avgWaitMs is a non-negative number", () => {
+      queue.enqueue("tx1", mockEnvelopeXdr);
+      const metrics = queue.getQueueMetrics();
+      expect(metrics.avgWaitMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it("backpressureActive is true when processing >= maxConcurrentSubmissions", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 1 });
+      q.enqueue("tx1", mockEnvelopeXdr);
+      q.get("tx1")!.status = "processing";
+
+      expect(q.getQueueMetrics().backpressureActive).toBe(true);
+    });
+
+    it("backpressureActive is false when under the cap", () => {
+      const q = new TransactionQueue({ maxConcurrentSubmissions: 5 });
+      q.enqueue("tx1", mockEnvelopeXdr);
+      q.get("tx1")!.status = "processing";
+
+      expect(q.getQueueMetrics().backpressureActive).toBe(false);
+    });
+  });
 });
