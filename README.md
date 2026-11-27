@@ -1259,3 +1259,7 @@ await client.soroban.execute(signedXdr, undefined, undefined, {
   bypassMainnetSafety: true,
 });
 ```
+
+## License
+
+[MIT](LICENSE)
