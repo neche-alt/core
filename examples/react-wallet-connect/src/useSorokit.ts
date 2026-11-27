@@ -12,11 +12,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createSorokitClient } from "../../../src/client/createSorokitClient";
 import { FreighterAdapter } from "../../../src/wallet/adapters/freighter";
-import {
-  reconnectWithConsent,
-  type ReconnectConsentContext,
-} from "../../../src/wallet/reconnectWithConsent";
-import { saveSession, clearSession } from "../../../src/wallet/sessionPersistence";
+import { walletErrorMessage } from "../../../src/wallet/rejectionMessaging";
 import type { SorokitClient } from "../../../src/client/createSorokitClient";
 import type { WalletState, SWKInstance } from "../../../src/wallet/types";
 import type { AssetBalance } from "../../../src/account/types";
@@ -146,7 +142,7 @@ export function useSorokit(
 
     const result = await client.wallet.connect(adapter);
     if (result.status === "error") {
-      setError(result.error.message);
+      setError(walletErrorMessage(result.error));
     } else {
       setWalletState(result.data);
       setStatus("Wallet connected");
@@ -228,7 +224,8 @@ export function useSorokit(
       });
       if (signed.status === "error") {
         // WALLET_SIGN_REJECTED means the user clicked "Reject" — not a crash.
-        setError(signed.error.message);
+        // Show an actionable message; never suggest automatic resubmission.
+        setError(walletErrorMessage(signed.error));
         setLoading(false);
         return;
       }
