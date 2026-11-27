@@ -3,8 +3,7 @@
 Connect a Stellar wallet with Freighter, fetch balances, and send a payment — using `sorokit-core` in a React app. On reload the app detects a persisted session and shows a consent prompt before reconnecting.
 
 ```
-Connect wallet → Fetch balances → Build payment → Sign → Submit
-Reload → Detect session → Consent prompt (with trust level) → Reconnect or clear
+Connect wallet → Fetch balances → Build payment → Review summary → Confirm → Sign → Submit
 ```
 
 ## Patterns covered
@@ -16,7 +15,8 @@ Reload → Detect session → Consent prompt (with trust level) → Reconnect or
   - Shows device trust level (from `deviceTrust.ts`) in the prompt
   - On rejection, clears the session (`clearSession`) and returns to idle
 - Loading account balances with `client.account.getBalances`
-- Building and signing a payment with `client.transaction.buildPayment`
+- Building a payment with `client.transaction.buildPayment`
+- **Showing a confirmation summary before the wallet prompt opens** (#105)
 - Handling `SorokitResult<T>` in component state (no try/catch)
 - Loading and error states per operation
 - Distinguishing user rejection from transport or contract failure
@@ -37,27 +37,43 @@ The SDK utility `walletErrorMessage` from `sorokit-core/wallet` handles this map
 
 | File | Purpose |
 |---|---|
-| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment |
-| `src/App.tsx` | UI: connect button, balance list, payment form, status messages |
-| `src/DiagnosticsPanel.tsx` | Opt-in `[DEBUG]` diagnostics panel (see below) |
-| `src/diagnosticsUtils.ts` | Pure helpers: status symbols, colours, latency formatting, secret detection |
+| `src/useSorokit.ts` | Custom hook: client setup, wallet state, account ops, payment flow |
+| `src/App.tsx` | UI: connect button, balance list, payment form, confirmation summary |
+| `src/TransactionConfirmationSummary.tsx` | Reusable summary panel shown before signing |
 
-## Localization (#104)
+## Confirmation summary (#105)
 
-All user-visible strings are centralized in `src/i18n.ts` as a typed dictionary. Amounts and dates use `Intl.NumberFormat` and `Intl.DateTimeFormat` — no extra dependency added to the core SDK.
+A demo should teach integrators to show users what they are approving before
+the wallet extension opens. This example enforces a two-step flow:
 
-```ts
-import { ui, formatAmount, formatDate } from "./i18n";
+1. The user fills in the payment form and clicks **Review & send**.
+2. `useSorokit` builds the transaction XDR and fetches a fee estimate (if
+   available), then sets `pendingSummary` — it does **not** open the wallet.
+3. `App.tsx` renders `TransactionConfirmationSummary`, which displays:
+   - Network (e.g. `testnet`)
+   - Destination address
+   - Operation summary (e.g. "Send 10 XLM to GDEST000…")
+   - Asset
+   - Amount
+   - Estimated fee in stroops (labelled "—" when unavailable)
+4. The user clicks **Confirm & open wallet** → `confirmPayment()` is called →
+   the wallet extension opens for signing → the transaction is submitted.
+5. If the user clicks **Cancel** → `cancelPayment()` discards the pending XDR
+   without opening the wallet extension.
 
-// Swap strings for another locale by replacing values in the dictionary.
-ui.connectButton;         // "Connect Freighter"
-ui.paymentSentStatus("TXHASH"); // "Payment sent — tx TXHASH"
-
-formatAmount("1234.5000000", "XLM", "de-DE"); // "1.234,5 XLM"
-formatDate("2024-03-15T10:00:00Z", "fr-FR");  // "15 mars 2024, 10:00"
+```tsx
+// In your own component:
+{pendingSummary && (
+  <TransactionConfirmationSummary
+    summary={pendingSummary}
+    onConfirm={confirmPayment}
+    onCancel={cancelPayment}
+  />
+)}
 ```
 
-To use your own translations, replace the values in `i18n.ts` or load them from any i18n library (react-i18next, vue-i18n, fluent, …) and re-export the same `WalletUiStrings` shape.
+Fields that cannot be determined (e.g. fee estimation fails) are set to `null`
+in the summary and rendered as "—" in the panel — they are never hidden.
 
 ## Setup
 
@@ -90,9 +106,9 @@ const {
   connect,
   balances,
   sendPayment,
-  pendingReconnect,
-  approveReconnect,
-  rejectReconnect,
+  pendingSummary,
+  confirmPayment,
+  cancelPayment,
 } = useSorokit(kit, "testnet");
 ```
 
@@ -125,7 +141,7 @@ Because this example lives inside the sorokit-core repo, its imports point to
 Type-check the example against the SDK source:
 
 ```bash
-npm run typecheck:examples
+yarn typecheck:examples
 ```
 
 ## Localization

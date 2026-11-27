@@ -1,7 +1,10 @@
 /**
  * React wallet-connect example — UI layer (#react-wallet-connect, #104).
  *
- * Renders connect/disconnect, a balance list, and a payment form.
+ * Renders connect/disconnect, a balance list, a payment form, and — after the
+ * transaction is built — a confirmation summary the user must review before
+ * the wallet prompt opens (#105).
+ *
  * All sorokit-core calls are in useSorokit.ts — this file only reads state
  * and calls the callbacks the hook exposes.
  *
@@ -18,14 +21,9 @@ import {
 } from "@creit.tech/stellar-wallets-kit";
 import { createI18n } from "../../../src/shared/i18n";
 import { useSorokit } from "./useSorokit";
-import { ui, formatAmount } from "./i18n";
-
-// A single i18n instance for the app.  Swap the locale to load a different
-// language; add new locales via withTranslations().
-const i18n = createI18n({ locale: "en" });
+import { TransactionConfirmationSummary } from "./TransactionConfirmationSummary";
 
 // Initialise SWK once outside the component so it isn't recreated on renders.
-// In a real app this typically lives in a context provider or module-level singleton.
 const kit = new StellarWalletsKit({
   network: WalletNetwork.TESTNET,
   selectedWalletId: FREIGHTER_ID,
@@ -59,13 +57,13 @@ export default function App() {
     loading,
     error,
     status,
-    pendingReconnect,
+    pendingSummary,
     connect,
     disconnect,
     refreshBalances,
     sendPayment,
-    approveReconnect,
-    rejectReconnect,
+    confirmPayment,
+    cancelPayment,
   } = useSorokit(kit, "testnet");
 
   const [destination, setDestination] = useState("");
@@ -190,8 +188,23 @@ export default function App() {
         </div>
       )}
 
-      {/* Payment form — only shown when connected */}
-      {isConnected && (
+      {/*
+        Confirmation summary — rendered after the transaction is built but
+        before the wallet prompt opens. The user must click "Confirm & open
+        wallet" to proceed, or "Cancel" to discard.
+      */}
+      {pendingSummary && (
+        <div style={{ marginTop: "1.5rem" }}>
+          <TransactionConfirmationSummary
+            summary={pendingSummary}
+            onConfirm={confirmPayment}
+            onCancel={cancelPayment}
+          />
+        </div>
+      )}
+
+      {/* Payment form — only shown when connected and no pending confirmation */}
+      {isConnected && !pendingSummary && (
         <form onSubmit={handleSend} style={{ marginTop: "1.5rem" }}>
           <h2>{i18n.t("ui.payment.heading")}</h2>
           <div style={{ marginBottom: "0.75rem" }}>
@@ -219,7 +232,7 @@ export default function App() {
             </label>
           </div>
           <button type="submit" disabled={loading}>
-            {loading ? i18n.t("ui.payment.sending") : i18n.t("ui.payment.send_button")}
+            {loading ? "Building transaction…" : "Review & send"}
           </button>
         </form>
       )}
