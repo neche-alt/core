@@ -79,20 +79,26 @@ const {
 } = useSorokit(kit, "testnet");
 ```
 
-## Activity states
+## Accessibility
 
-The balances section uses a derived state machine with four distinct states:
+### Reduced motion
 
-| State | When shown |
+The example listens to `prefers-reduced-motion` via `window.matchMedia` and removes CSS transitions when the user prefers reduced motion. The `motionSafeTransition` helper in `src/a11y.ts` returns `"none"` when reduced motion is active.
+
+### Color contrast and color-only indicators
+
+Status colors (success, error, neutral) use dark foreground tokens that meet WCAG AA (4.5:1 on white). No status is communicated by color alone — each state also carries `role="alert"` or `role="status"` and visible text.
+
+When `forced-colors` or `prefers-contrast: more` is active, all status colors fall back to the CSS system keyword `ButtonText`, which the browser maps to the user's high-contrast foreground color.
+
+### Checks used
+
+| Check | Method |
 |---|---|
-| `loading` | A fetch is in progress and no balances are cached yet |
-| `empty` | Wallet connected, fetch complete, account has no balances |
-| `error` | Last fetch failed — includes a **Retry** button (`aria-label="Retry loading activity"`) |
-| `populated` | At least one balance returned |
-
-Each state carries an `aria-label` and `role="status"` so screen readers announce transitions. The wrapping `<section>` uses `aria-busy` and `aria-live="polite"`.
-
-The logic lives in the exported `deriveActivityState` helper so it can be tested independently of the React tree.
+| Reduced motion respected | `window.matchMedia("(prefers-reduced-motion: reduce)")` with live listener |
+| High contrast respected | `window.matchMedia("(forced-colors: active)")` and `prefers-contrast: more` |
+| Status not color-only | Each state has `role`, `aria-label`, and text in addition to color |
+| Color contrast | Tokens verified manually against WCAG AA (4.5:1 on white) |
 
 ## Running
 
