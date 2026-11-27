@@ -933,6 +933,8 @@ Examples are type-checked against the SDK source with `npm run typecheck:example
 
 For a side-by-side comparison of `stellar-sdk` patterns vs `sorokit-core`, see [docs/migration-guide.md](docs/migration-guide.md).
 
+Having trouble? The [troubleshooting decision tree](docs/troubleshooting.md) covers wallet setup, endpoint configuration, signing failures, contract errors, circuit-breaker state, and streaming issues — with diagnostic commands and escalation data that excludes secrets and private keys.
+
 ---
 
 ## Design Principles
