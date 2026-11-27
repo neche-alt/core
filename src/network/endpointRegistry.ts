@@ -3,6 +3,10 @@
  *
  * Manages custom Horizon/RPC endpoints with weighted load balancing,
  * round-robin rotation, latency tracking, and automatic failover.
+ *
+ * Extended in #147: each endpoint now carries a rolling health score
+ * (success rate, p95 latency estimate, circuit-breaker state) used by
+ * endpointFailover.ts for weighted selection.
  */
 
 import { err, ok, SorokitErrorCode } from "../shared/response";
@@ -11,6 +15,29 @@ import type { SorokitResult } from "../shared/response";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EndpointType = "horizon" | "rpc";
+
+/**
+ * Rolling health score maintained per endpoint (#147).
+ *
+ * `score` is a composite 0–1 value used for weighted failover selection:
+ *   score = successRate × (1 / (1 + p95LatencyMs / 1000)) × breakerFactor
+ *
+ * breakerFactor: 0 when OPEN, 0.5 when HALF_OPEN, 1 when CLOSED / absent.
+ */
+export interface EndpointHealthScore {
+  /** Rolling success rate in [0, 1]. */
+  successRate: number;
+  /** P95 latency estimate in ms (exponentially-weighted, biased toward max). */
+  p95LatencyMs: number;
+  /** Composite weighted score in [0, 1] used for endpoint selection. */
+  score: number;
+  /** Most-recently reported circuit-breaker state, if tracked. */
+  breakerState?: "CLOSED" | "OPEN" | "HALF_OPEN" | undefined;
+  /** Successful requests counted in the current rolling window. */
+  windowSuccesses: number;
+  /** Total requests counted in the current rolling window. */
+  windowTotal: number;
+}
 
 export interface Endpoint {
   /** Endpoint URL */
@@ -29,6 +56,8 @@ export interface Endpoint {
   lastChecked: number;
   /** Whether the endpoint is considered healthy */
   healthy: boolean;
+  /** Rolling health score used for weighted failover selection (#147). */
+  healthScore: EndpointHealthScore;
 }
 
 export interface EndpointHealthResult {
@@ -54,6 +83,17 @@ export interface EndpointRegistryConfig {
 const DEFAULT_MAX_FAILURES = 3;
 const DEFAULT_HEALTH_CHECK_TIMEOUT_MS = 5000;
 
+function defaultHealthScore(): EndpointHealthScore {
+  return {
+    successRate: 1,
+    p95LatencyMs: 0,
+    score: 1,
+    breakerState: undefined,
+    windowSuccesses: 0,
+    windowTotal: 0,
+  };
+}
+
 /**
  * In-memory endpoint registry with weighted load balancing and health tracking.
  */
@@ -73,6 +113,25 @@ export class EndpointRegistry {
 
   private key(type: EndpointType, url: string): string {
     return `${type}::${url}`;
+  }
+
+  /**
+   * Recompute and store the composite health score for an endpoint (#147).
+   *
+   * score = successRate × latencyFactor × breakerFactor
+   *   latencyFactor = 1 / (1 + p95LatencyMs / 1000)
+   *   breakerFactor = 0 (OPEN) | 0.5 (HALF_OPEN) | 1 (CLOSED / absent)
+   */
+  private updateHealthScore(ep: Endpoint): void {
+    const hs = ep.healthScore;
+    const latencyFactor = 1 / (1 + hs.p95LatencyMs / 1000);
+    const breakerFactor =
+      hs.breakerState === "OPEN"
+        ? 0
+        : hs.breakerState === "HALF_OPEN"
+          ? 0.5
+          : 1;
+    hs.score = hs.successRate * latencyFactor * breakerFactor;
   }
 
   /**
@@ -126,6 +185,7 @@ export class EndpointRegistry {
       failureCount: existing?.failureCount ?? 0,
       lastChecked: existing?.lastChecked ?? 0,
       healthy: existing?.healthy ?? true,
+      healthScore: existing?.healthScore ?? defaultHealthScore(),
     };
 
     this.endpoints.set(k, endpoint);
@@ -153,9 +213,10 @@ export class EndpointRegistry {
   /**
    * Select the optimal endpoint using weighted scoring.
    *
-   * Score = weight × (1 / (1 + latencyMs/1000)) × priorityBoost
-   * Only healthy endpoints are considered. Falls back to any endpoint
-   * if all are unhealthy.
+   * Healthy endpoints are ranked by their composite health score (#147).
+   * Among endpoints within 10 % of the top score a small random jitter is
+   * applied to avoid thundering-herd selection of the same endpoint.
+   * Falls back to any endpoint if all are unhealthy.
    */
   getOptimalEndpoint(type: EndpointType): SorokitResult<Endpoint> {
     const candidates = this.getEndpoints(type);
@@ -169,13 +230,9 @@ export class EndpointRegistry {
     const healthy = candidates.filter((e) => e.healthy);
     const pool = healthy.length > 0 ? healthy : candidates;
 
-    // Sort by priority (lower first), then by weighted score (higher first)
+    // Sort by priority (lower first), then by composite health score (higher first).
     const scored = pool
-      .map((ep) => {
-        const latencyFactor = 1 / (1 + ep.latencyMs / 1000);
-        const score = ep.weight * latencyFactor;
-        return { ep, score };
-      })
+      .map((ep) => ({ ep, score: ep.healthScore.score }))
       .sort((a, b) => {
         if (a.ep.priority !== b.ep.priority) return a.ep.priority - b.ep.priority;
         return b.score - a.score;
@@ -188,7 +245,19 @@ export class EndpointRegistry {
         `No endpoints available for type: ${type}`,
       );
     }
-    return ok(best.ep);
+
+    // Jitter: collect all endpoints within 10 % of the best score so a
+    // single healthy endpoint is not always hammered during recovery.
+    const jitterThreshold = best.score * 0.9;
+    const nearBest = scored.filter(
+      (s) => s.ep.priority === best.ep.priority && s.score >= jitterThreshold,
+    );
+    const chosen =
+      nearBest.length > 1
+        ? nearBest[Math.floor(Math.random() * nearBest.length)]!.ep
+        : best.ep;
+
+    return ok(chosen);
   }
 
   /**
@@ -248,7 +317,6 @@ export class EndpointRegistry {
       });
       const latencyMs = Date.now() - start;
 
-      // Update all matching endpoints
       for (const ep of this.endpoints.values()) {
         if (ep.url === url) {
           ep.latencyMs = latencyMs;
@@ -256,11 +324,13 @@ export class EndpointRegistry {
           ep.healthy = res.ok;
           if (res.ok) {
             ep.failureCount = 0;
+            this.recordSuccess(ep.type, url);
           } else {
             ep.failureCount += 1;
             if (ep.failureCount >= this.maxFailures) {
               ep.healthy = false;
             }
+            this.recordFailure(ep.type, url);
           }
         }
       }
@@ -269,7 +339,6 @@ export class EndpointRegistry {
     } catch (cause) {
       const latencyMs = Date.now() - start;
 
-      // Mark all matching endpoints as failed
       for (const ep of this.endpoints.values()) {
         if (ep.url === url) {
           ep.failureCount += 1;
@@ -278,6 +347,7 @@ export class EndpointRegistry {
           if (ep.failureCount >= this.maxFailures) {
             ep.healthy = false;
           }
+          this.recordFailure(ep.type, url);
         }
       }
 
@@ -289,21 +359,30 @@ export class EndpointRegistry {
 
   /**
    * Record a latency measurement for an endpoint.
+   * Updates both the rolling average and the p95 estimate (#147).
    */
   recordLatency(type: EndpointType, url: string, latencyMs: number): void {
     const k = this.key(type, url);
     const ep = this.endpoints.get(k);
     if (ep) {
-      // Exponential moving average (α = 0.3)
+      // Exponential moving average (α = 0.3) for the mean latency
       ep.latencyMs = ep.latencyMs === 0
         ? latencyMs
         : ep.latencyMs * 0.7 + latencyMs * 0.3;
       ep.lastChecked = Date.now();
+
+      // P95 estimate biased toward the maximum observed (α = 0.1 decay, keep peak)
+      ep.healthScore.p95LatencyMs = Math.max(
+        ep.healthScore.p95LatencyMs * 0.9,
+        latencyMs,
+      );
+      this.updateHealthScore(ep);
     }
   }
 
   /**
    * Record a failure for an endpoint. Marks unhealthy after maxFailures.
+   * Decrements success rate in the rolling window (#147).
    */
   recordFailure(type: EndpointType, url: string): void {
     const k = this.key(type, url);
@@ -314,11 +393,20 @@ export class EndpointRegistry {
       if (ep.failureCount >= this.maxFailures) {
         ep.healthy = false;
       }
+
+      // Rolling window: count the request but not as a success
+      ep.healthScore.windowTotal += 1;
+      ep.healthScore.successRate =
+        ep.healthScore.windowTotal > 0
+          ? ep.healthScore.windowSuccesses / ep.healthScore.windowTotal
+          : 0;
+      this.updateHealthScore(ep);
     }
   }
 
   /**
    * Record a successful request for an endpoint (resets failure count).
+   * Increments success rate in the rolling window (#147).
    */
   recordSuccess(type: EndpointType, url: string): void {
     const k = this.key(type, url);
@@ -327,7 +415,47 @@ export class EndpointRegistry {
       ep.failureCount = 0;
       ep.healthy = true;
       ep.lastChecked = Date.now();
+
+      // Rolling window
+      ep.healthScore.windowSuccesses += 1;
+      ep.healthScore.windowTotal += 1;
+      ep.healthScore.successRate =
+        ep.healthScore.windowTotal > 0
+          ? ep.healthScore.windowSuccesses / ep.healthScore.windowTotal
+          : 1;
+      this.updateHealthScore(ep);
     }
+  }
+
+  /**
+   * Report the circuit-breaker state for an endpoint (#147).
+   * OPEN scores 0, HALF_OPEN scores 0.5×, CLOSED scores full.
+   */
+  setBreakerState(
+    type: EndpointType,
+    url: string,
+    state: "CLOSED" | "OPEN" | "HALF_OPEN",
+  ): void {
+    const k = this.key(type, url);
+    const ep = this.endpoints.get(k);
+    if (ep) {
+      ep.healthScore.breakerState = state;
+      this.updateHealthScore(ep);
+    }
+  }
+
+  /**
+   * Return health scores for all (or type-filtered) endpoints (#147).
+   * Intended for telemetry/observability consumers.
+   */
+  getHealthScores(
+    type?: EndpointType,
+  ): Array<{ url: string; type: EndpointType; healthScore: EndpointHealthScore }> {
+    return this.getEndpoints(type).map((ep) => ({
+      url: ep.url,
+      type: ep.type,
+      healthScore: { ...ep.healthScore },
+    }));
   }
 
   /**

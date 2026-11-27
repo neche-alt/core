@@ -545,6 +545,27 @@ export function recordCacheHit(
 }
 
 /**
+ * Records the health score for an endpoint as telemetry metrics (#147).
+ *
+ * Emits:
+ *  - `endpoint.health_score`  histogram (the composite 0–1 score)
+ *  - `endpoint.success_rate`  histogram (rolling success rate)
+ *  - `endpoint.p95_latency_ms` histogram (p95 latency estimate)
+ *
+ * No-op when telemetry is uninitialized.
+ */
+export function recordEndpointHealthScore(
+  url: string,
+  score: { score: number; successRate: number; p95LatencyMs: number },
+): void {
+  if (!activeManager) return;
+  const attrs = { endpoint: url };
+  activeManager.recordHistogram("endpoint.health_score", score.score, attrs);
+  activeManager.recordHistogram("endpoint.success_rate", score.successRate, attrs);
+  activeManager.recordHistogram("endpoint.p95_latency_ms", score.p95LatencyMs, attrs, "ms");
+}
+
+/**
  * Returns aggregated metric summaries (duration percentiles, counts) from the active manager.
  * Emits a console warning if called before `initTelemetry()` (at most once per session).
  */

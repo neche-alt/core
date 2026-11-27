@@ -188,6 +188,7 @@ export {
   getEndpointPool,
   createFailoverFetch,
   validateEndpointList,
+  selectByScore,
 } from "./endpointFailover";
 export type {
   EndpointHealth,
@@ -207,4 +208,5 @@ export type {
   Endpoint,
   EndpointHealthResult,
   EndpointRegistryConfig,
+  EndpointHealthScore,
 } from "./endpointRegistry";
