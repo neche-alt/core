@@ -6,6 +6,17 @@
  * - All other modules import only from shared/ or their own files.
  * - NetworkConfig is typed from shared/types — transaction/ and soroban/
  *   never import from network/.
+ *
+ * Resource Ownership & Lifecycle:
+ * - `SorokitClient` is a stateless configuration wrapper and API gateway.
+ * - It does NOT own or maintain background sockets, persistent connections,
+ *   or polling timers.
+ * - Single client instances can be safely reused across an application or
+ *   instantiated per-request in serverless workloads.
+ * - Any explicitly created streaming resources, WebSocket feeds, or
+ *   connection pools (`ConnectionPool`, `EndpointPool`, `createWebSocketTransactionFeed`,
+ *   or `subscribePrices`) are owned by the application that creates them and
+ *   must be cleaned up via their respective `close()`, `stop()`, or `unsubscribe()` handles.
  */
 
 import { resolveNetwork } from "../network/resolveNetwork";

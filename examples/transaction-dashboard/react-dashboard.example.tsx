@@ -29,7 +29,12 @@ export function startLiveUpdates(fetchRecent: () => Promise<TransactionResult[]>
 export function TransactionStatusDashboard({ aggregator = dashboard }: { aggregator?: TransactionStatusAggregator }) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>(() => aggregator.getSnapshot());
 
-  useEffect(() => aggregator.subscribe(setSnapshot), [aggregator]);
+  // Subscription lifecycle: The caller owns the subscription and unsubscribes
+  // on component unmount to prevent memory leaks and dangling callbacks.
+  useEffect(() => {
+    const unsubscribe = aggregator.subscribe(setSnapshot);
+    return () => unsubscribe();
+  }, [aggregator]);
 
   return (
     <section aria-label="Transaction status dashboard">

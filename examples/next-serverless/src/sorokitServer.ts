@@ -19,9 +19,15 @@ import type { AccountInfo } from "../../../src/account/types";
 
 // ── client factory ────────────────────────────────────────────────────────────
 //
-// In a serverless environment each invocation is stateless, so we create a
-// fresh client per request. The client itself is lightweight — it holds no
-// connections, just config — so this is fine.
+// Client Resource Ownership & Reuse:
+// `createSorokitClient` produces a lightweight, stateless facade that holds
+// configuration and delegates RPC/Horizon requests. It does NOT own persistent
+// sockets or timers. Applications may safely reuse a single singleton instance
+// across serverless container warm starts or create one per invocation.
+//
+// If you configure custom ConnectionPools or EndpointPool monitors, your application
+// owns their lifecycle and is responsible for calling `pool.close()` or
+// `pool.stopHealthMonitoring()` during container shutdown.
 
 export function getServerClient(network: NetworkType = "testnet"): SorokitClient {
   const result = createSorokitClient({ network });

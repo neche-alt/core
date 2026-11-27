@@ -171,6 +171,17 @@ if (contractResult.status === "ok") {
 
 ---
 
+## Client Resource Ownership & Lifecycle
+
+Applications need clear boundaries on whether shared clients own connections, timers, or background subscriptions so they can reuse and close them cleanly:
+
+- **`createSorokitClient` (Stateless Client)**: `SorokitClient` does not own persistent background connections, open sockets, or unmanaged timers. It can be safely reused as a singleton across your application or instantiated per-request in serverless handlers without leaking memory or handles.
+- **`ConnectionPool` (HTTP Connections)**: Owns idle keep-alive timers and queued requests. When you configure a custom pool via `setConnectionPool(pool)`, call `pool.close()` when shutting down or tearing down your application.
+- **`EndpointPool` (Failover & Health Checks)**: Background health monitoring initiated by `pool.startHealthMonitoring()` creates an active timer. Call the returned cleanup function or `pool.stopHealthMonitoring()` to clear the timer. In test suites, call `resetEndpointPools()` or `resetServerFactory()` to reset global state.
+- **Subscriptions & Feeds**: Event streams and WebSocket subscriptions (such as `subscribePrices`, `createWebSocketTransactionFeed`, or `streamTransactionStatus`) return explicit handles (`unsubscribe()`, `close()`, or `stop()`). Consumers own their lifecycle and should invoke teardown upon component unmount or task completion.
+
+---
+
 ## API Reference
 
 The [hosted API reference](https://tochukwujustice.github.io/core/) is published by

@@ -195,6 +195,7 @@ export {
   EndpointPool,
   configureEndpointFailover,
   getEndpointPool,
+  resetEndpointPools,
   createFailoverFetch,
   validateEndpointList,
   selectByScore,

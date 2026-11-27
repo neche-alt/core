@@ -27,6 +27,7 @@ Branch on `result.status` — never wrap these calls in `try/catch`.
 | 13 | [Real-time balance alerts and streaming](./13-balance-alerts-streaming.md) | React to balance changes without polling yourself |
 | 14 | [Contract deployment with validation](./14-contract-deployment.md) | Deploy a Soroban WASM with pre-flight checks |
 | 15 | [Fee estimation and surge pricing](./15-fee-estimation.md) | Estimate fees accurately before building a transaction |
+| 21 | [Multi-endpoint failover and graceful degradation](./21-multi-endpoint-failover.md) | High availability, ledger skew mitigation, and safe writes |
 
 ---
 

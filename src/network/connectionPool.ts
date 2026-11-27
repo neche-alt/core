@@ -41,6 +41,8 @@ export class ConnectionPool {
   private readonly origins = new Map<string, OriginState>();
   private readonly baseFetch: FetchLike;
 
+  private closed = false;
+
   constructor(config: ConnectionPoolConfig = {}, fetchImpl: FetchLike = globalThis.fetch.bind(globalThis)) {
     this.config = {
       maxPoolSize: Math.max(1, Math.floor(config.maxPoolSize ?? DEFAULTS.maxPoolSize)),
@@ -48,6 +50,11 @@ export class ConnectionPool {
       socketTimeoutMs: Math.max(0, Math.floor(config.socketTimeoutMs ?? DEFAULTS.socketTimeoutMs)),
     };
     this.baseFetch = fetchImpl;
+  }
+
+  /** Whether close() has been invoked on this connection pool. */
+  get isClosed(): boolean {
+    return this.closed;
   }
 
   private stateFor(origin: string): OriginState {
@@ -84,8 +91,11 @@ export class ConnectionPool {
     }
   }
 
-  /** Fetch through the pool. Connections are keyed by URL origin. */
+  /** Fetch through the pool. Connections are keyed by URL origin. Throws if closed. */
   fetch: FetchLike = async (input, init) => {
+    if (this.closed) {
+      throw new Error("ConnectionPool is closed and cannot process requests.");
+    }
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const origin = new URL(url).origin;
     const state = await this.acquire(origin);
@@ -116,8 +126,14 @@ export class ConnectionPool {
   }
 
   close(): void {
+    this.closed = true;
     for (const state of this.origins.values()) {
       if (state.idleTimer) clearTimeout(state.idleTimer);
+      // Drain any waiting queue items with an error or resolve to avoid hung promises
+      while (state.queue.length > 0) {
+        const item = state.queue.shift();
+        item?.resolve();
+      }
     }
     this.origins.clear();
   }

@@ -209,6 +209,17 @@ export function getEndpointPool(primary: string): EndpointPool | undefined {
   return pools.get(normalizeEndpoint(primary));
 }
 
+/**
+ * Clear all configured endpoint failover pools and stop any background monitors.
+ * Useful for test isolation, network reconfiguration, or client teardown.
+ */
+export function resetEndpointPools(): void {
+  for (const pool of pools.values()) {
+    pool.stopHealthMonitoring();
+  }
+  pools.clear();
+}
+
 function rewriteEndpoint(input: RequestInfo | URL, endpoint: string, original: string): RequestInfo | URL {
   const source = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
   const sourceUrl = new URL(source);

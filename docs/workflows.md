@@ -76,6 +76,14 @@ if (signed.status === "error") return showError(signed.error);
 return client.soroban.execute(signed.data);
 ```
 
+## Multi-endpoint failover and safe writes
+
+When configuring multiple Horizon or Soroban RPC endpoints, requests automatically route to secondary healthy endpoints if the primary encounters 5xx, 429, or network disconnects. For mission-critical workflows:
+
+1. **Stale read handling:** When failing over between nodes, ledger heights may temporarily differ. Verify response ledger numbers against your known high-water mark sequence.
+2. **Safe write handling:** If a transaction submission times out during an endpoint switch, check its status using the immutable transaction hash before rebuilding or re-signing. Re-fetch account sequence numbers to avoid `tx_bad_seq` sequence desynchronization.
+3. **Endpoint recovery:** An unhealthy primary automatically resumes receiving traffic once its `recoveryIntervalMs` passes and a request succeeds.
+
 ## Error recovery
 
 Use the error code rather than parsing message text. A timeout or transient network error can be retried with the same immutable XDR. A sequence conflict requires rebuilding with a fresh account sequence. A wallet rejection should end the workflow without an automatic retry. Never mutate a submitted XDR while recovering.

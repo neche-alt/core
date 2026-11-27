@@ -283,6 +283,10 @@ export {
   NETWORK_DEFAULTS,
   ConnectionPool,
   createConnectionPool,
+  EndpointPool,
+  configureEndpointFailover,
+  getEndpointPool,
+  resetEndpointPools,
 } from "./network";
 export type {
   AdaptiveRateLimiterOptions,
@@ -315,7 +319,7 @@ export type {
   ConnectionPoolConfig,
   ConnectionPoolStats,
 } from "./network";
-export { setConnectionPool, getConnectionPool } from "./shared/serverFactory";
+export { setConnectionPool, getConnectionPool, resetServerFactory } from "./shared/serverFactory";
 
 // ─── Circuit breaker (#186) ────────────────────────────────────────────────────
 export {

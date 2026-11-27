@@ -46,6 +46,18 @@ export function getConnectionPool(): ConnectionPool | undefined {
 }
 
 /**
+ * Reset all centralized server factory state.
+ *
+ * This clears configured `tracedFetch`, removes the active `connectionPool`,
+ * and resets `activeSimulator`. Useful for test cleanup or application shutdown.
+ */
+export function resetServerFactory(): void {
+  tracedFetch = undefined;
+  connectionPool = undefined;
+  activeSimulator = null;
+}
+
+/**
  * Inject a SorobanSimulator for local testing (#210).
  * When set, createSorobanServer returns the simulator instead of a
  * real SorobanRpc.Server for any URL matching simulator.rpc.

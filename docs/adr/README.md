@@ -19,3 +19,4 @@ history of *why* stays intact.
 | [ADR-003](./003-streaming-architecture.md) | Streaming architecture | Accepted |
 | [ADR-004](./004-contract-interaction-patterns.md) | Contract interaction patterns | Accepted |
 | [ADR-005](./005-cache-strategy.md) | Cache strategy | Accepted |
+| [ADR-006](./006-multi-endpoint-failover-and-graceful-degradation.md) | Multi-endpoint failover and graceful degradation | Accepted |
