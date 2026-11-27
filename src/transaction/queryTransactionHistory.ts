@@ -9,6 +9,7 @@ import {
   formatAssetString,
   extractOperationsFromXdr,
   HORIZON_PAGE_LIMIT,
+  HORIZON_MAX_PAGES,
   FALLBACK_PASSPHRASE,
 } from "./exportTransactionHistory";
 
@@ -190,6 +191,7 @@ export async function queryTransactionHistory(
     let cursor: string | undefined;
     let keepFetching = true;
     let hasMoreRecords = false;
+    let pagesFetched = 0;
 
     const recordsNeeded = page * perPage;
 
@@ -205,6 +207,8 @@ export async function queryTransactionHistory(
       }
 
       const horizonPage = await builder.call();
+
+      pagesFetched += 1;
 
       if (!horizonPage.records || horizonPage.records.length === 0) {
         break;
@@ -275,8 +279,17 @@ export async function queryTransactionHistory(
       if (!pageFull) {
         break;
       }
+      // Bounded iteration (#84): cap the sweep and stop when the cursor does
+      // not advance — a repeated cursor would otherwise loop forever.
+      if (pagesFetched >= HORIZON_MAX_PAGES) {
+        break;
+      }
+      const nextCursor = lastRecord.paging_token;
+      if (nextCursor === cursor) {
+        break;
+      }
       hasMoreRecords = true;
-      cursor = lastRecord.paging_token;
+      cursor = nextCursor;
     }
 
     const sorted = sortTransactions(allTransactions, sortConfig);

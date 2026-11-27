@@ -147,6 +147,16 @@ export type {
   BulkRotateKeyResult,
 } from "./batchOperations";
 
+// ─── Virtualized activity feed (#134) ────────────────────────────────────────
+export { createVirtualizedFeedManager } from "./virtualizedActivityFeed";
+export type {
+  ActivityFeedItem,
+  VirtualizedFeedConfig,
+  FeedAggregates,
+  VirtualizedFeedState,
+  VirtualizedFeedManager,
+} from "./virtualizedActivityFeed";
+
 // ─── Multi-wallet portfolio aggregation (#525) ────────────────────────────────
 export { aggregatePortfolio, assetIdentifier } from "./portfolioAggregation";
 export type {

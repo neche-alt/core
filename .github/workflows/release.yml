@@ -1,0 +1,173 @@
+name: Release
+
+# Trigger only on version tags pushed to the repository.
+# Tag format: v<semver>, e.g. v1.2.3
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write   # create GitHub release
+  id-token: write   # OIDC token for provenance attestation
+
+jobs:
+  # ── 1. Validate tag ────────────────────────────────────────────────────────
+  validate-tag:
+    name: Validate tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+    steps:
+      - name: Parse version from tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Tag '$TAG' does not match v<major>.<minor>.<patch>"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag validated: $TAG -> $VERSION"
+
+      - uses: actions/checkout@v4
+
+      - name: Verify package.json version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${{ steps.parse.outputs.version }}"
+          # Strip pre-release suffix for comparison (e.g. 1.2.3-beta.1 -> 1.2.3)
+          BASE_TAG_VERSION="${TAG_VERSION%%-*}"
+          if [[ "$PKG_VERSION" != "$TAG_VERSION" && "$PKG_VERSION" != "$BASE_TAG_VERSION" ]]; then
+            echo "::error::package.json version ($PKG_VERSION) does not match tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version check passed: $PKG_VERSION"
+
+  # ── 2. Build & test ────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build and test
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Build
+        run: npm run build
+
+      - name: Check bundle size
+        run: npm run size:check --if-present
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ needs.validate-tag.outputs.version }}
+          path: dist/
+          retention-days: 7
+
+  # ── 3. Provenance attestation ──────────────────────────────────────────────
+  provenance:
+    name: Attest build provenance
+    needs: [validate-tag, build-and-test]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ needs.validate-tag.outputs.version }}
+          path: dist/
+
+      - name: Generate provenance attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: dist/**/*.{js,mjs,cjs,d.ts}
+
+  # ── 4. GitHub Release ──────────────────────────────────────────────────────
+  release:
+    name: Create GitHub release
+    needs: [validate-tag, build-and-test, provenance]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ needs.validate-tag.outputs.version }}
+          path: dist/
+
+      - name: Build release summary
+        id: summary
+        run: |
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          COMMIT_SHA="${GITHUB_SHA}"
+          SHORT_SHA="${COMMIT_SHA:0:7}"
+          TAG="${GITHUB_REF_NAME}"
+
+          # Count dist outputs
+          JS_COUNT=$(find dist -name "*.js" -o -name "*.mjs" -o -name "*.cjs" | wc -l | tr -d ' ')
+          DTS_COUNT=$(find dist -name "*.d.ts" | wc -l | tr -d ' ')
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Release $TAG
+
+          | Field | Value |
+          |---|---|
+          | Version | \`$VERSION\` |
+          | Source commit | [\`$SHORT_SHA\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA) |
+          | Tag | \`$TAG\` |
+          | JS outputs | $JS_COUNT |
+          | Type declarations | $DTS_COUNT |
+          | Node.js | $(node --version) |
+          EOF
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "sorokit-core ${{ needs.validate-tag.outputs.version }}"
+          body: |
+            ## sorokit-core ${{ needs.validate-tag.outputs.version }}
+
+            **Source commit:** [`${{ steps.summary.outputs.short_sha }}`](https://github.com/${{ github.repository }}/commit/${{ steps.summary.outputs.commit_sha }})
+
+            Built and tested on Node.js 22. All CI gates (typecheck, lint, test, build) passed before this release was created.
+
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for what changed in this version.
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
