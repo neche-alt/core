@@ -7,6 +7,8 @@ export {
   getAllEntries,
   clearAuditTrail,
   generateComplianceReport,
+  verifyHashChain,
+  createFileSink,
 } from "./auditTrail";
 export type {
   AuditContext,
@@ -14,7 +16,9 @@ export type {
   AuditQueryOptions,
   AuditRecord,
   AuditTrail,
+  AuditSink,
+  AuditRetentionOptions,
+  AuditTrailOptions,
   ComplianceAuditReport,
   ComplianceDateRange,
 } from "./auditTrail";
-

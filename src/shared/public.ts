@@ -33,3 +33,14 @@ export {
   DEFAULT_MAINNET_SAFETY_THRESHOLD_XLM,
   MAINNET_NETWORK_PASSPHRASE,
 } from "./mainnetSafety";
+
+export {
+  checkBrowserCompatibility,
+  assertBrowserCompatibility,
+  requireBrowserAPIs,
+} from "./browserCompatibility";
+export type {
+  RequiredWebAPI,
+  APIProbeResult,
+  BrowserCompatibilityReport,
+} from "./browserCompatibility";
